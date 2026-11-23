@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Splitbook — split expenses with friends</title>
+<meta name="description" content="Track shared expenses, split bills and settle up — in SGD, MYR, IDR and more.">
+<meta name="theme-color" content="#0f766e">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧾</text></svg>">
+<style>
+:root{
+  --bg:#f4f6f5;--card:#fff;--ink:#16211e;--muted:#64736f;--line:#e2e8e6;
+  --accent:#0f766e;--accent-ink:#fff;--accent-soft:#e0f2ef;
+  --pos:#15803d;--neg:#c2410c;--warn:#b45309;--radius:14px;
+  --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 16px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0e1413;--card:#161f1d;--ink:#e6eeec;--muted:#93a3a0;--line:#27332f;
+  --accent:#2dd4bf;--accent-ink:#04201c;--accent-soft:#123a35;
+  --pos:#4ade80;--neg:#fb923c;--warn:#fbbf24;--shadow:none;
+}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+.wrap{max-width:780px;margin:0 auto;padding:12px 14px 80px}
+header.top{display:flex;align-items:center;gap:10px;padding:6px 0 12px;flex-wrap:wrap}
+.brand{font-weight:800;font-size:20px;letter-spacing:-.02em;margin-right:auto}
+.brand span{color:var(--accent)}
+select,input[type=text],input[type=number],input[type=date],input[type=url],textarea{
+  background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 11px;width:100%;min-width:0}
+select:focus,input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+textarea{resize:vertical;min-height:60px}
+.btn{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:9px 14px;cursor:pointer;font-weight:600;white-space:nowrap}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.danger{color:var(--neg)}
+.btn.sm{padding:6px 10px;font-size:13px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px}
+.summary{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px}
+.summary h1{margin:0;font-size:22px;letter-spacing:-.02em}
+.summary .meta{color:var(--muted);font-size:13px}
+.summary .acts{margin-left:auto;display:flex;gap:8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chip{font-size:13px;padding:3px 9px;border-radius:99px;background:var(--accent-soft);font-weight:600}
+.chip.pos{color:var(--pos)}.chip.neg{color:var(--neg)}
+.tabs{display:flex;gap:4px;margin:4px 0 12px;border-bottom:1px solid var(--line);overflow-x:auto}
+.tab{background:none;border:0;padding:10px 14px;cursor:pointer;color:var(--muted);font-weight:600;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab.on{color:var(--ink);border-color:var(--accent)}
+.filters{display:flex;gap:8px;margin-bottom:10px}
+.filters input{flex:2}.filters select{flex:1}
+.month{display:flex;justify-content:space-between;align-items:baseline;margin:16px 4px 6px;font-size:13px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;gap:10px}
+.month small{font-weight:500;text-transform:none;letter-spacing:0;text-align:right}
+.list{display:flex;flex-direction:column;gap:6px}
+.row{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer}
+.row:hover{border-color:var(--accent)}
+.date{width:38px;text-align:center;line-height:1.1;color:var(--muted);flex:none}
+.date span{font-size:11px;text-transform:uppercase;display:block}.date b{font-size:18px;color:var(--ink)}
+.ico{width:36px;height:36px;border-radius:10px;background:var(--accent-soft);display:grid;place-items:center;font-size:18px;flex:none}
+.main{flex:1;min-width:0}
+.main .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.main .s{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.right{text-align:right;flex:none;display:flex;flex-direction:column;align-items:flex-end}
+.right small{font-size:12px}.right b{font-size:15px}
+.fx{color:var(--muted);font-weight:500;font-size:12px}
+.pos{color:var(--pos)}.neg{color:var(--neg)}.muted{color:var(--muted)}
+.cur-tag{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:6px;background:var(--accent-soft);margin-right:4px;vertical-align:1px}
+.empty{text-align:center;color:var(--muted);padding:40px 10px}
+.empty .big{font-size:40px}
+h2.sec{font-size:15px;margin:20px 4px 8px;display:flex;align-items:center;gap:8px}
+h2.sec:first-child{margin-top:4px}
+.bal{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.bal:last-child{border-bottom:0}
+.avatar{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:13px;color:#fff;flex:none}
+.bal .nm{flex:1;font-weight:600}
+.bal .amts{text-align:right;font-size:14px}
+.debt{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.debt:last-child{border-bottom:0}
+.debt .txt{flex:1;min-width:180px}
+.switch{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-left:auto;font-weight:500;cursor:pointer}
+.bars{display:flex;flex-direction:column;gap:8px}
+.bar{display:grid;grid-template-columns:130px 1fr auto;gap:10px;align-items:center;font-size:14px}
+.bar .track{height:10px;background:var(--accent-soft);border-radius:99px;overflow:hidden}
+.bar .fill{height:100%;background:var(--accent);border-radius:99px}
+.bar .v{text-align:right;white-space:nowrap}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{padding:12px}.stat .k{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}.stat .v{font-size:18px;font-weight:700}
+table.t{width:100%;border-collapse:collapse;font-size:14px}
+table.t th,table.t td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:right}
+table.t th:first-child,table.t td:first-child{text-align:left}
+table.t th{font-size:12px;color:var(--muted);font-weight:600}
+.field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+.field>label,.lbl{font-size:13px;font-weight:600;color:var(--muted)}
+.inline{display:flex;gap:8px;align-items:center}
+.inline>*{flex:1}
+.member-row{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.member-row input{flex:1}
+.seg{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px}
+.seg button{flex:1;border:0;background:none;padding:7px 4px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px;color:var(--muted)}
+.seg button.on{background:var(--card);color:var(--ink);box-shadow:var(--shadow)}
+.srow{display:flex;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px dashed var(--line)}
+.srow:last-child{border-bottom:0}
+.srow .n{flex:1;font-weight:500;display:flex;align-items:center;gap:8px}
+.srow input[type=number]{width:110px;flex:none;padding:6px 8px}
+.srow .amt{width:130px;text-align:right;font-size:13px;color:var(--muted)}
+.srow input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
+.hint{font-size:13px;margin-top:6px;font-weight:600}
+.err{color:var(--neg);font-size:14px;font-weight:600;min-height:1em;margin:4px 0}
+#modal-root .back{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding:4vh 10px;z-index:50;overflow-y:auto}
+.modal{background:var(--card);border-radius:16px;width:100%;max-width:520px;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.modal h3{margin:0 0 14px;font-size:18px;display:flex;align-items:center}
+.modal h3 .x{margin-left:auto;background:none;border:0;font-size:22px;cursor:pointer;color:var(--muted)}
+.modal .foot{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.modal .foot .btn.danger{margin-right:auto}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;opacity:0;transition:.25s;pointer-events:none;z-index:60;font-weight:600}
+#toast.show{opacity:1;transform:translateX(-50%)}
+.welcome{text-align:center;padding:40px 10px}
+.welcome h1{font-size:30px;letter-spacing:-.03em;margin:10px 0 6px}
+.welcome p{color:var(--muted);max-width:440px;margin:0 auto 20px}
+.welcome .acts{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.settings .card{margin-bottom:12px}
+.settings h2.sec{margin-top:0}
+.rates{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+.rate{display:flex;align-items:center;gap:6px;font-size:13px}
+.rate span{white-space:nowrap;color:var(--muted)}
+.rate input{padding:5px 7px}
+.small{font-size:13px;color:var(--muted)}
+@media (max-width:560px){
+  .summary .acts{margin-left:0;width:100%}.summary .acts .btn{flex:1}
+  .bar{grid-template-columns:90px 1fr auto}
+  .date{display:none}
+  .srow .amt{width:90px}.srow input[type=number]{width:84px}
+  .grid2{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top" id="top"></header>
+  <main id="app"></main>
+</div>
+<div id="modal-root"></div>
+<div id="toast"></div>
+<input type="file" id="importFile" accept="application/json,.json" hidden>
+
+<script>
+'use strict';
+/* =====================================================================
+   Splitbook — a self-contained expense splitter (no server needed).
+   Data lives in this browser's localStorage. Use Export / Share link
+   to move it between devices or friends.
+   ===================================================================== */
+
+const LS_KEY = 'splitbook.v1';
+const RATES_URL = 'https://open.er-api.com/v6/latest/USD'; // free, no API key, CORS-enabled
+
+/* ---------- Currencies ---------- */
+// Currencies whose everyday amounts have no decimal places.
+const ZERO_DEC = new Set(['IDR','JPY','KRW','VND']);
+const CURRENCIES = ['SGD','MYR','IDR','USD','EUR','GBP','THB','JPY','KRW','CNY','HKD','TWD','AUD','NZD','PHP','VND','INR','CAD','CHF'];
+// Approximate fallback rates (units per 1 USD). Replaced by live rates when online.
+const FALLBACK_RATES = {USD:1,SGD:1.30,MYR:4.25,IDR:16300,EUR:0.87,GBP:0.76,THB:33,JPY:150,KRW:1400,CNY:7.15,HKD:7.8,TWD:31,AUD:1.53,NZD:1.7,PHP:58,VND:26000,INR:87,CAD:1.38,CHF:0.8};
+
+const dec = c => ZERO_DEC.has(c) ? 0 : 2;
+const toMinor = (v, c) => Math.round(parseFloat(String(v).replace(/,/g,'')) * 10 ** dec(c));
+const toMajor = (m, c) => m / 10 ** dec(c);
+const numFmt = {};
+function fmt(minor, cur){
+  const d = dec(cur);
+  const f = numFmt[d] || (numFmt[d] = new Intl.NumberFormat('en-SG',{minimumFractionDigits:d,maximumFractionDigits:d}));
+  return `${cur} ${f.format(toMajor(minor, cur))}`;
+}
+// Approximate value of an amount in the group's home currency (display only).
+function approx(minor, cur, home){
+  if (!home || cur === home) return null;
+  const r = state.rates.rates;
+  if (!r[cur] || !r[home]) return null;
+  const homeMajor = toMajor(minor, cur) / r[cur] * r[home];
+  return Math.round(homeMajor * 10 ** dec(home));
+}
+// Formatted amount + "(≈ SGD x)" bracket when the currency differs from home.
+function money(minor, cur, g, cls=''){
+  const a = approx(minor, cur, g && g.home);
+  const main = `<span class="${cls}">${esc(fmt(minor, cur))}</span>`;
+  return a == null ? main : `${main} <span class="fx">(≈ ${esc(fmt(a, g.home))})</span>`;
+}
+function moneyText(minor, cur, g){
+  const a = approx(minor, cur, g && g.home);
+  return a == null ? fmt(minor, cur) : `${fmt(minor, cur)} (≈ ${fmt(a, g.home)})`;
+}
+
+/* ---------- Categories ---------- */
+const CATS = [
+  ['general','General','🧾'],['food','Food & drink','🍜'],['groceries','Groceries','🛒'],
+  ['transport','Transport','🚕'],['travel','Flights & travel','✈️'],['accommodation','Accommodation','🏨'],
+  ['entertainment','Entertainment','🎬'],['shopping','Shopping','🛍️'],['utilities','Utilities','💡'],
+  ['rent','Rent','🏠'],['gifts','Gifts','🎁'],['other','Other','📦']
+];
+const catOf = k => CATS.find(c => c[0] === k) || CATS[0];
+const COLORS = ['#0f766e','#7c3aed','#db2777','#ea580c','#2563eb','#16a34a','#ca8a04','#0891b2','#9333ea','#dc2626'];
+
+/* ---------- State ---------- */
+let state = load();
+const ui = { tab:'expenses', search:'', cat:'', simplify:true };
+
+function load(){
+  try {
+    const s = JSON.parse(localStorage.getItem(LS_KEY));
+    if (s && Array.isArray(s.groups)) {
+      s.rates = s.rates || {rates:{...FALLBACK_RATES}, updated:0, source:'fallback'};
+      return s;
+    }
+  } catch(e) {}
+  return { version:1, groups:[], activeGroupId:null, rates:{rates:{...FALLBACK_RATES}, updated:0, source:'fallback'} };
+}
+function save(){
+  try { localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+  catch(e){ toast('⚠️ Could not save — storage may be full or blocked'); }
+}
+const uid = () => Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4);
+const curGroup = () => state.groups.find(g => g.id === state.activeGroupId) || state.groups[0] || null;
+const nameOf = (g, id) => (g.members.find(m => m.id === id) || {}).name || 'Former member';
+const colorOf = (g, id) => COLORS[Math.max(0, g.members.findIndex(m => m.id === id)) % COLORS.length];
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function today(){ const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0,10); }
+const initials = n => n.trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase() || '?';
+const owes = (g, id) => id === g.meId ? 'owe' : 'owes';
+const avatar = (g, id) => `<div class="avatar" style="background:${colorOf(g,id)}">${esc(initials(nameOf(g,id)))}</div>`;
+
+/* ---------- Money maths (integer minor units, no float drift) ---------- */
+// Split `total` into integer parts proportional to `weights`; parts always sum to total.
+function distribute(total, weights){
+  const sum = weights.reduce((a,b) => a + b, 0);
+  if (!(sum > 0)) return null;
+  const raw = weights.map(w => total * w / sum);
+  const base = raw.map(Math.floor);
+  let rem = total - base.reduce((a,b) => a + b, 0);
+  const order = raw.map((r,i) => [r - base[i], i]).sort((a,b) => b[0] - a[0]);
+  for (let k = 0; k < rem; k++) base[order[k % order.length][1]]++;
+  return base;
+}
+
+// Compute who owes what for an expense. Returns {owed} or {error}.
+function computeSplit(total, mode, input, memberIds){
+  if (!(total > 0)) return {error:'Enter an amount first'};
+  let weights;
+  if (mode === 'equal') {
+    weights = memberIds.map(id => input[id] ? 1 : 0);
+    if (!weights.some(Boolean)) return {error:'Pick at least one person to split with'};
+  } else if (mode === 'exact') {
+    const vals = memberIds.map(id => Math.max(0, Number(input[id]) || 0));
+    const sum = vals.reduce((a,b) => a + b, 0);
+    if (sum !== total) return {error:'mismatch', diff: total - sum, owed: Object.fromEntries(memberIds.map((id,i) => [id, vals[i]]))};
+    return {owed: Object.fromEntries(memberIds.map((id,i) => [id, vals[i]]))};
+  } else if (mode === 'percent') {
+    weights = memberIds.map(id => Math.max(0, Number(input[id]) || 0));
+    const sum = weights.reduce((a,b) => a + b, 0);
+    if (Math.abs(sum - 100) > 0.001) return {error:'pct', diff: 100 - sum};
+  } else { // shares
+    weights = memberIds.map(id => Math.max(0, Number(input[id]) || 0));
+    if (!weights.some(Boolean)) return {error:'Give at least one person a share'};
+  }
+  const parts = distribute(total, weights);
+  return {owed: Object.fromEntries(memberIds.map((id,i) => [id, parts[i]]))};
+}
+
+// Currencies used in a group, home currency first.
+function currenciesUsed(g){
+  const set = new Set(g.expenses.map(e => e.currency));
+  return [...set].sort((a,b) => (a===g.home?-1:b===g.home?1:a.localeCompare(b)));
+}
+// Net balance per member, in one currency. Positive = is owed money.
+function balances(g, cur){
+  const b = Object.fromEntries(g.members.map(m => [m.id, 0]));
+  for (const e of g.expenses) {
+    if (e.currency !== cur) continue;
+    if (e.type === 'payment') { b[e.from] = (b[e.from]||0) + e.amount; b[e.to] = (b[e.to]||0) - e.amount; }
+    else {
+      for (const [id,c] of Object.entries(e.payers)) b[id] = (b[id]||0) + c;
+      for (const [id,c] of Object.entries(e.owed)) b[id] = (b[id]||0) - c;
+    }
+  }
+  return b;
+}
+// Fewest payments to settle everyone (greedy, per currency).
+function simplify(b){
+  const cred = [], debt = [];
+  for (const [id,v] of Object.entries(b)) { if (v > 0) cred.push([id,v]); else if (v < 0) debt.push([id,-v]); }
+  cred.sort((a,b) => b[1]-a[1]); debt.sort((a,b) => b[1]-a[1]);
+  const out = []; let i = 0, j = 0;
+  while (i < debt.length && j < cred.length) {
+    const x = Math.min(debt[i][1], cred[j][1]);
+    if (x > 0) out.push({from:debt[i][0], to:cred[j][0], amount:x});
+    debt[i][1] -= x; cred[j][1] -= x;
+    if (!debt[i][1]) i++; if (!cred[j][1]) j++;
+  }
+  return out;
+}
+// Who owes whom directly, without simplifying across people (per currency).
+function pairwise(g, cur){
+  const d = {};
+  const add = (a,b,v) => { d[a] = d[a] || {}; d[a][b] = (d[a][b]||0) + v; };
+  for (const e of g.expenses) {
+    if (e.currency !== cur) continue;
+    if (e.type === 'payment') { add(e.to, e.from, e.amount); continue; }
+    const paidTotal = Object.values(e.payers).reduce((a,b)=>a+b,0) || 1;
+    for (const [m,o] of Object.entries(e.owed)) for (const [p,c] of Object.entries(e.payers)) {
+      if (m !== p && o && c) add(m, p, o * c / paidTotal);
+    }
+  }
+  const ids = [...new Set([...g.members.map(m=>m.id), ...Object.keys(d)])], out = [];
+  for (let i=0;i<ids.length;i++) for (let j=i+1;j<ids.length;j++){
+    const a=ids[i], b=ids[j];
+    const net = Math.round(((d[a]||{})[b]||0) - ((d[b]||{})[a]||0));
+    if (net > 0) out.push({from:a,to:b,amount:net}); else if (net < 0) out.push({from:b,to:a,amount:-net});
+  }
+  return out.sort((x,y)=>y.amount-x.amount);
+}
+const involved = (g, id) => g.expenses.some(e => e.type==='payment' ? (e.from===id||e.to===id) : ((e.payers[id]||0) || (e.owed[id]||0)));
+
+/* ---------- Exchange rates (display only) ---------- */
+async function refreshRates(force){
+  const age = Date.now() - (state.rates.updated || 0);
+  if (!force && state.rates.source === 'live' && age < 12*3600e3) return;
+  try {
+    const r = await fetch(RATES_URL, {cache:'no-store'});
+    const j = await r.json();
+    if (j.result !== 'success' || !j.rates) throw new Error('bad response');
+    const rates = {};
+    for (const c of CURRENCIES) if (j.rates[c]) rates[c] = j.rates[c];
+    state.rates = { rates:{...state.rates.rates, ...rates}, updated: Date.now(), source:'live', manual:{} };
+    save(); render();
+    if (force) toast('Exchange rates updated');
+  } catch(e) {
+    if (force) toast('Could not fetch rates — using saved rates');
+  }
+}
+
+/* ---------- Rendering ---------- */
+function render(){
+  renderTop();
+  const g = curGroup();
+  const app = document.getElementById('app');
+  if (!g) { app.innerHTML = renderWelcome(); return; }
+  state.activeGroupId = g.id;
+  const views = {expenses:renderExpenses, balances:renderBalances, stats:renderStats, settings:renderSettings};
+  app.innerHTML = renderSummary(g) + `
+    <nav class="tabs">${[['expenses','Expenses'],['balances','Balances'],['stats','Stats'],['settings','Group settings']]
+      .map(([k,l]) => `<button class="tab ${ui.tab===k?'on':''}" data-act="tab" data-tab="${k}">${l}</button>`).join('')}</nav>
+    <section>${views[ui.tab](g)}</section>`;
+  if (ui.tab === 'expenses') renderExpenseList(g);
+}
+
+function renderTop(){
+  const g = curGroup();
+  document.getElementById('top').innerHTML = `
+    <div class="brand">🧾 Split<span>book</span></div>
+    ${state.groups.length ? `<select id="groupSel" style="width:auto;max-width:220px" aria-label="Switch group">
+      ${state.groups.map(x => `<option value="${x.id}" ${g&&x.id===g.id?'selected':''}>${esc(x.name)}</option>`).join('')}
+    </select>
+    <button class="btn" data-act="newGroup">+ Group</button>` : ''}`;
+}
+
+function renderWelcome(){
+  return `<div class="welcome">
+    <div style="font-size:54px">🧾</div>
+    <h1>Split expenses, minus the awkwardness</h1>
+    <p>Track who paid for what, split it any way you like, and see who owes whom — in SGD, MYR, IDR or any currency, kept separate.</p>
+    <div class="acts">
+      <button class="btn primary" data-act="newGroup">Create a group</button>
+      <button class="btn" data-act="demo">Try a demo trip</button>
+      <button class="btn" data-act="importJSON">Import backup</button>
+    </div>
+    <p class="small" style="margin-top:26px">Your data stays in this browser. Use <b>Share link</b> or <b>Export</b> to move it to another device or a friend.</p>
+  </div>`;
+}
+
+function myBalanceChips(g){
+  if (!g.meId) return '';
+  const chips = currenciesUsed(g).map(c => {
+    const v = balances(g, c)[g.meId] || 0;
+    if (!v) return '';
+    return `<span class="chip ${v>0?'pos':'neg'}">${v>0?'You are owed':'You owe'} ${esc(moneyText(Math.abs(v), c, g))}</span>`;
+  }).join('');
+  return `<div class="chips">${chips || '<span class="chip">You are all settled up ✓</span>'}</div>`;
+}
+
+function renderSummary(g){
+  const n = g.expenses.filter(e => e.type==='expense').length;
+  return `<div class="card summary">
+    <div>
+      <h1>${esc(g.name)}</h1>
+      <div class="meta">${g.members.length} member${g.members.length===1?'':'s'} · ${n} expense${n===1?'':'s'}</div>
+      ${myBalanceChips(g)}
+    </div>
+    <div class="acts">
+      <button class="btn" data-act="settle">Settle up</button>
+      <button class="btn primary" data-act="addExpense">+ Add expense</button>
+    </div>
+  </div>`;
+}
+
+/* ----- Expenses tab ----- */
+function renderExpenses(g){
+  if (!g.expenses.length) return `<div class="empty"><div class="big">🪙</div><p>No expenses yet.<br>Add the first one — dinner, a Grab ride, the hotel…</p>
+    <button class="btn primary" data-act="addExpense">+ Add expense</button></div>`;
+  return `<div class="filters">
+      <input type="text" id="search" placeholder="Search expenses…" value="${esc(ui.search)}">
+      <select id="catFilter">
+        <option value="">All types</option>
+        ${CATS.map(c => `<option value="${c[0]}" ${ui.cat===c[0]?'selected':''}>${c[2]} ${c[1]}</option>`).join('')}
+        <option value="__pay" ${ui.cat==='__pay'?'selected':''}>💸 Payments</option>
+      </select>
+    </div>
+    <div id="expList"></div>`;
+}
+
+function filteredEntries(g){
+  const q = ui.search.trim().toLowerCase();
+  return g.expenses.filter(e => {
+    if (ui.cat) {
+      if (ui.cat === '__pay') { if (e.type !== 'payment') return false; }
+      else if (e.type !== 'expense' || e.category !== ui.cat) return false;
+    }
+    if (q) {
+      const hay = (e.type === 'payment'
+        ? `${nameOf(g,e.from)} ${nameOf(g,e.to)} payment ${e.notes||''} ${e.currency}`
+        : `${e.desc} ${e.notes||''} ${catOf(e.category)[1]} ${e.currency}`).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }).sort((a,b) => b.date.localeCompare(a.date) || (b.createdAt||0) - (a.createdAt||0));
+}
+
+function renderExpenseList(g){
+  const el = document.getElementById('expList'); if (!el) return;
+  const list = filteredEntries(g);
+  if (!list.length) { el.innerHTML = `<div class="empty">No matching expenses.</div>`; return; }
+  const months = {};
+  for (const e of list) (months[e.date.slice(0,7)] = months[e.date.slice(0,7)] || []).push(e);
+  el.innerHTML = Object.entries(months).map(([ym, items]) => {
+    const [y,m] = ym.split('-').map(Number);
+    const label = new Date(y, m-1, 1).toLocaleDateString('en-SG', {month:'long', year:'numeric'});
+    const tot = {};
+    items.filter(e => e.type==='expense').forEach(e => tot[e.currency] = (tot[e.currency]||0) + e.amount);
+    const totTxt = Object.entries(tot).map(([c,v]) => fmt(v,c)).join(' · ');
+    return `<div class="month"><span>${label}</span><small>${esc(totTxt)}</small></div>
+      <div class="list">${items.map(e => rowHTML(g,e)).join('')}</div>`;
+  }).join('');
+}
+
+function rowHTML(g, e){
+  const d = new Date(e.date + 'T00:00');
+  const badge = `<div class="date"><span>${d.toLocaleDateString('en-SG',{month:'short'})}</span><b>${d.getDate()}</b></div>`;
+  if (e.type === 'payment') {
+    return `<button class="row" data-act="editPayment" data-id="${e.id}">${badge}<div class="ico">💸</div>
+      <div class="main"><div class="t">${esc(nameOf(g,e.from))} paid ${esc(nameOf(g,e.to))}</div>
+      <div class="s">${esc(e.notes || 'Settle up')}</div></div>
+      <div class="right"><b class="pos">${esc(fmt(e.amount, e.currency))}</b>${fxLine(e.amount,e.currency,g)}</div></button>`;
+  }
+  const payerIds = Object.keys(e.payers).filter(id => e.payers[id] > 0);
+  const who = payerIds.length > 1 ? `${payerIds.length} people paid` : `${esc(nameOf(g, payerIds[0]))} paid`;
+  let right = `<small class="muted">total</small><b>${esc(fmt(e.amount, e.currency))}</b>${fxLine(e.amount,e.currency,g)}`;
+  if (g.meId) {
+    const n = (e.payers[g.meId]||0) - (e.owed[g.meId]||0);
+    const inIt = (e.payers[g.meId]||0) || (e.owed[g.meId]||0);
+    right = n > 0 ? `<small class="pos">you lent</small><b class="pos">${esc(fmt(n,e.currency))}</b>${fxLine(n,e.currency,g)}`
+          : n < 0 ? `<small class="neg">you borrowed</small><b class="neg">${esc(fmt(-n,e.currency))}</b>${fxLine(-n,e.currency,g)}`
+          : `<small class="muted">${inIt ? 'your share' : 'not involved'}</small><b class="muted">${inIt ? esc(fmt(e.owed[g.meId]||0,e.currency)) : '—'}</b>`;
+  }
+  return `<button class="row" data-act="editExpense" data-id="${e.id}">${badge}<div class="ico">${catOf(e.category)[2]}</div>
+    <div class="main"><div class="t">${esc(e.desc)}</div><div class="s">${who} ${esc(fmt(e.amount, e.currency))}</div></div>
+    <div class="right">${right}</div></button>`;
+}
+function fxLine(minor, cur, g){
+  const a = approx(minor, cur, g.home);
+  return a == null ? '' : `<span class="fx">(≈ ${esc(fmt(a, g.home))})</span>`;
+}
+
+/* ----- Balances tab ----- */
+function renderBalances(g){
+  const curs = currenciesUsed(g);
+  if (!curs.length) return `<div class="empty"><div class="big">⚖️</div><p>Balances appear once you add expenses.</p></div>`;
+  let html = `<p class="small" style="margin:0 4px 10px">Each currency is settled separately. Amounts in brackets are approximate ${esc(g.home)} values for reference only.</p>`;
+  let anyDebt = false;
+  for (const c of curs) {
+    const b = balances(g, c);
+    const debts = ui.simplify ? simplify(b) : pairwise(g, c);
+    if (debts.length) anyDebt = true;
+    html += `<h2 class="sec"><span class="cur-tag">${c}</span> balances
+      ${c===curs[0] ? `<label class="switch"><input type="checkbox" id="simplifyToggle" ${ui.simplify?'checked':''}> Simplify debts</label>` : ''}</h2>
+      <div class="card" style="padding:0">
+        ${g.members.map(m => {
+          const v = b[m.id] || 0;
+          const txt = v > 0 ? `<span class="pos">gets back ${money(v,c,g)}</span>`
+                    : v < 0 ? `<span class="neg">owes ${money(-v,c,g)}</span>`
+                    : `<span class="muted">settled up</span>`;
+          return `<div class="bal">${avatar(g,m.id)}<div class="nm">${esc(m.name)}${m.id===g.meId?' <span class="muted">(you)</span>':''}</div><div class="amts">${txt}</div></div>`;
+        }).join('')}
+      </div>
+      ${debts.length ? `<div class="card" style="padding:0;margin-top:8px">
+        ${debts.map(d => `<div class="debt">
+          <div class="txt"><b>${esc(nameOf(g,d.from))}</b> ${owes(g,d.from)} <b>${esc(nameOf(g,d.to))}</b> <b class="neg">${esc(fmt(d.amount,c))}</b> ${fxLine(d.amount,c,g)}</div>
+          <button class="btn sm" data-act="settle" data-from="${d.from}" data-to="${d.to}" data-amount="${d.amount}" data-cur="${c}">Record payment</button>
+        </div>`).join('')}</div>`
+      : `<p class="small" style="margin:8px 4px">Everyone is settled up in ${c} ✓</p>`}`;
+  }
+  if (!anyDebt) html += `<div class="empty"><div class="big">🎉</div><p>All settled up!</p></div>`;
+  return html;
+}
+
+/* ----- Stats tab ----- */
+function renderStats(g){
+  const exps = g.expenses.filter(e => e.type==='expense');
+  if (!exps.length) return `<div class="empty"><div class="big">📊</div><p>Stats appear once you add expenses.</p></div>`;
+  return currenciesUsed(g).filter(c => exps.some(e => e.currency===c)).map(c => {
+    const ex = exps.filter(e => e.currency===c);
+    const total = ex.reduce((a,e) => a + e.amount, 0);
+    const byCat = {}; ex.forEach(e => byCat[e.category] = (byCat[e.category]||0) + e.amount);
+    const byMonth = {}; ex.forEach(e => { const k=e.date.slice(0,7); byMonth[k]=(byMonth[k]||0)+e.amount; });
+    const paid = {}, share = {};
+    ex.forEach(e => { for (const [id,v] of Object.entries(e.payers)) paid[id]=(paid[id]||0)+v;
+                      for (const [id,v] of Object.entries(e.owed)) share[id]=(share[id]||0)+v; });
+    const bars = (obj, label) => { const max = Math.max(...Object.values(obj), 1);
+      return `<div class="bars">${Object.entries(obj).sort((a,b)=>b[1]-a[1]).map(([k,v]) => `
+        <div class="bar"><div>${label(k)}</div><div class="track"><div class="fill" style="width:${(v/max*100).toFixed(1)}%"></div></div><div class="v">${esc(fmt(v,c))}</div></div>`).join('')}</div>`; };
+    const dates = ex.map(e=>e.date).sort();
+    return `<h2 class="sec"><span class="cur-tag">${c}</span> spending</h2>
+      <div class="grid2" style="margin-bottom:10px">
+        <div class="card stat"><div class="k">Total spent</div><div class="v">${esc(fmt(total,c))}</div>${fxLine(total,c,g)}</div>
+        <div class="card stat"><div class="k">Expenses</div><div class="v">${ex.length}</div><span class="fx">${esc(dates[0])} → ${esc(dates[dates.length-1])}</span></div>
+      </div>
+      <div class="card" style="margin-bottom:10px"><div class="lbl" style="margin-bottom:10px">By category</div>${bars(byCat, k => `${catOf(k)[2]} ${catOf(k)[1]}`)}</div>
+      <div class="card" style="margin-bottom:10px"><div class="lbl" style="margin-bottom:10px">By month</div>${bars(Object.fromEntries(Object.entries(byMonth).sort()), k => { const [y,m]=k.split('-').map(Number); return new Date(y,m-1,1).toLocaleDateString('en-SG',{month:'short',year:'numeric'}); })}</div>
+      <div class="card"><table class="t"><thead><tr><th>Member</th><th>Paid</th><th>Their share</th></tr></thead><tbody>
+        ${g.members.map(m => `<tr><td>${esc(m.name)}</td><td>${esc(fmt(paid[m.id]||0,c))}</td><td>${esc(fmt(share[m.id]||0,c))}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }).join('');
+}
+
+/* ----- Settings tab ----- */
+function renderSettings(g){
+  const r = state.rates;
+  const others = CURRENCIES.filter(c => c !== g.home);
+  const upd = r.updated ? new Date(r.updated).toLocaleString('en-SG',{dateStyle:'medium',timeStyle:'short'}) : 'never';
+  return `<div class="settings">
+    <div class="card"><h2 class="sec">Group</h2>
+      <div class="field"><label>Group name</label><input type="text" id="gName" value="${esc(g.name)}"></div>
+      <div class="grid2">
+        <div class="field"><label>Default currency for new expenses</label>
+          <select id="gDefCur">${CURRENCIES.map(c => `<option ${c===g.defaultCurrency?'selected':''}>${c}</option>`).join('')}</select></div>
+        <div class="field"><label>Show approx. values in (brackets)</label>
+          <select id="gHome">${CURRENCIES.map(c => `<option ${c===g.home?'selected':''}>${c}</option>`).join('')}</select></div>
+      </div>
+      <div class="field"><label>Who are you? (shows “you owe / you lent”)</label>
+        <select id="gMe"><option value="">— Not set —</option>${g.members.map(m => `<option value="${m.id}" ${m.id===g.meId?'selected':''}>${esc(m.name)}</option>`).join('')}</select></div>
+    </div>
+
+    <div class="card"><h2 class="sec">Members</h2>
+      ${g.members.map(m => `<div class="member-row">${avatar(g,m.id)}
+        <input type="text" value="${esc(m.name)}" data-rename="${m.id}" aria-label="Member name">
+        <button class="btn sm danger" data-act="removeMember" data-id="${m.id}" ${involved(g,m.id)?'disabled title="Has expenses — can’t remove"':''}>Remove</button></div>`).join('')}
+      <div class="member-row" style="margin-top:10px"><input type="text" id="newMember" placeholder="Add a member…"><button class="btn sm" data-act="addMember">Add</button></div>
+    </div>
+
+    <div class="card"><h2 class="sec">Exchange rates <span class="small" style="font-weight:400">(for the ≈ brackets only)</span></h2>
+      <p class="small" style="margin-top:0">Balances are never converted — each currency is settled on its own. Source: ${r.source==='live'?'open.er-api.com':'built-in estimates'} · updated ${esc(upd)}. You can edit any rate.</p>
+      <div class="rates">${others.map(c => `<label class="rate"><span>1 ${g.home} =</span><input type="number" step="any" min="0" data-rate="${c}" value="${+(r.rates[c]/r.rates[g.home]).toPrecision(5)}"><span>${c}</span></label>`).join('')}</div>
+      <div style="margin-top:10px"><button class="btn sm" data-act="refreshRates">↻ Fetch latest rates</button></div>
+    </div>
+
+    <div class="card"><h2 class="sec">Share & back up</h2>
+      <p class="small" style="margin-top:0">Data is stored in this browser only. Send friends a share link so they can load a copy of this group, or export a backup file.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" data-act="share">🔗 Share link</button>
+        <button class="btn" data-act="exportCSV">⬇ Export CSV</button>
+        <button class="btn" data-act="exportJSON">⬇ Backup (all groups)</button>
+        <button class="btn" data-act="importJSON">⬆ Import backup</button>
+      </div>
+    </div>
+
+    <div class="card"><h2 class="sec">Danger zone</h2>
+      <button class="btn danger" data-act="deleteGroup">Delete this group</button></div>
+  </div>`;
+}
+
+/* ---------- Modals ---------- */
+let modalCleanup = null;
+function openModal(title, body, foot, onMount){
+  const root = document.getElementById('modal-root');
+  root.innerHTML = `<div class="back" data-back><div class="modal" role="dialog" aria-modal="true">
+    <h3>${title}<button class="x" data-act="closeModal" aria-label="Close">×</button></h3>
+    ${body}<div class="foot">${foot}</div></div></div>`;
+  modalCleanup = onMount ? onMount(root.querySelector('.modal')) : null;
+  const first = root.querySelector('input:not([type=checkbox]),select'); if (first) setTimeout(() => first.focus(), 30);
+}
+function closeModal(){ document.getElementById('modal-root').innerHTML = ''; modalCleanup = null; }
+function confirmDialog(msg, okLabel='Delete'){
+  return new Promise(res => {
+    openModal('Are you sure?', `<p>${msg}</p>`,
+      `<button class="btn" id="cNo">Cancel</button><button class="btn primary" id="cYes">${okLabel}</button>`,
+      m => { m.querySelector('#cNo').onclick = () => { closeModal(); res(false); };
+             m.querySelector('#cYes').onclick = () => { closeModal(); res(true); }; });
+  });
+}
+function toast(msg){ const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2400); }
+
+/* ----- New group ----- */
+function openGroupForm(){
+  openModal('New group', `
+    <div class="field"><label>Group name</label><input type="text" id="ngName" placeholder="e.g. Bali trip, Flat 12-34, Friday lunch"></div>
+    <div class="grid2">
+      <div class="field"><label>Default currency</label><select id="ngCur">${CURRENCIES.map(c => `<option ${c==='SGD'?'selected':''}>${c}</option>`).join('')}</select></div>
+      <div class="field"><label>Show ≈ values in</label><select id="ngHome">${CURRENCIES.map(c => `<option ${c==='SGD'?'selected':''}>${c}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label>Your name</label><input type="text" id="ngMe" placeholder="You"></div>
+    <div class="field"><label>Other members (one per line)</label><textarea id="ngOthers" rows="4" placeholder="Alex&#10;Priya&#10;Wei Ming"></textarea></div>
+    <div class="err" id="ngErr"></div>`,
+    `<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" id="ngSave">Create group</button>`,
+    m => { m.querySelector('#ngSave').onclick = () => {
+      const name = m.querySelector('#ngName').value.trim();
+      const me = m.querySelector('#ngMe').value.trim() || 'Me';
+      const others = m.querySelector('#ngOthers').value.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+      if (!name) return m.querySelector('#ngErr').textContent = 'Give the group a name';
+      if (!others.length) return m.querySelector('#ngErr').textContent = 'Add at least one other member';
+      const members = [me, ...others].map(n => ({id:uid(), name:n}));
+      const cur = m.querySelector('#ngCur').value;
+      const g = {id:uid(), name, defaultCurrency:cur, home:m.querySelector('#ngHome').value, members, meId:members[0].id, expenses:[], createdAt:Date.now()};
+      state.groups.push(g); state.activeGroupId = g.id; ui.tab = 'expenses';
+      save(); closeModal(); render(); toast('Group created');
+    }; });
+}
+
+/* ----- Add / edit expense ----- */
+function openExpenseForm(g, exp){
+  const isEdit = !!exp;
+  const ids = g.members.map(m => m.id);
+  const cur0 = exp ? exp.currency : (g.lastCurrency || g.defaultCurrency || 'SGD');
+  const f = {
+    currency: cur0,
+    mode: exp ? exp.splitMode : 'equal',
+    payerMode: exp && Object.keys(exp.payers).filter(k => exp.payers[k] > 0).length > 1 ? 'multi' : 'single',
+    payer: exp ? (Object.keys(exp.payers).find(k => exp.payers[k] > 0) || ids[0]) : (g.meId || ids[0]),
+    multi: {}, input: { equal:{}, exact:{}, percent:{}, shares:{} }
+  };
+  ids.forEach(id => { f.input.equal[id] = true; f.input.exact[id] = ''; f.input.percent[id] = ''; f.input.shares[id] = '1'; f.multi[id] = ''; });
+  if (exp) {
+    for (const id of ids) {
+      if (f.payerMode === 'multi') f.multi[id] = exp.payers[id] ? toMajor(exp.payers[id], exp.currency) : '';
+      const v = exp.splitInput[id];
+      if (exp.splitMode === 'equal') f.input.equal[id] = !!v;
+      else if (exp.splitMode === 'exact') f.input.exact[id] = v ? toMajor(v, exp.currency) : '';
+      else f.input[exp.splitMode][id] = v ?? '';
+    }
+  }
+  const step = c => dec(c) ? '0.01' : '1';
+  openModal(isEdit ? 'Edit expense' : 'Add an expense', `
+    <div class="field"><label>Description</label><input type="text" id="fDesc" value="${esc(exp?.desc||'')}" placeholder="e.g. Dinner at Jimbaran"></div>
+    <div class="field"><label>Amount</label>
+      <div class="inline"><select id="fCur" style="flex:0 0 92px">${CURRENCIES.map(c => `<option ${c===cur0?'selected':''}>${c}</option>`).join('')}</select>
+      <input type="number" id="fAmt" inputmode="decimal" min="0" step="${step(cur0)}" value="${exp ? toMajor(exp.amount, exp.currency) : ''}" placeholder="0"></div>
+      <div class="small" id="fFx"></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>Date</label><input type="date" id="fDate" value="${exp?.date || today()}"></div>
+      <div class="field"><label>Category</label><select id="fCat">${CATS.map(c => `<option value="${c[0]}" ${(exp?.category||'general')===c[0]?'selected':''}>${c[2]} ${c[1]}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label>Paid by</label>
+      <select id="fPayer">${g.members.map(m => `<option value="${m.id}" ${f.payerMode==='single'&&m.id===f.payer?'selected':''}>${esc(m.name)}${m.id===g.meId?' (you)':''}</option>`).join('')}
+        <option value="__multi" ${f.payerMode==='multi'?'selected':''}>Multiple people…</option></select>
+      <div id="fMulti"></div>
+    </div>
+    <div class="field"><span class="lbl">Split</span>
+      <div class="seg" id="fSeg">${[['equal','Equally'],['exact','Exact amounts'],['percent','Percent'],['shares','Shares']]
+        .map(([k,l]) => `<button type="button" data-mode="${k}">${l}</button>`).join('')}</div>
+      <div id="fRows" style="margin-top:6px"></div>
+      <div class="hint" id="fHint"></div>
+    </div>
+    <div class="field"><label>Notes (optional)</label><textarea id="fNotes" rows="2">${esc(exp?.notes||'')}</textarea></div>
+    <div class="err" id="fErr"></div>`,
+    `${isEdit ? '<button class="btn danger" id="fDel">Delete</button>' : ''}<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" id="fSave">${isEdit?'Save changes':'Add expense'}</button>`,
+    m => {
+      const $ = s => m.querySelector(s);
+      const total = () => { const v = $('#fAmt').value; return v === '' ? 0 : toMinor(v, f.currency); };
+
+      function drawMulti(){
+        if (f.payerMode !== 'multi') { $('#fMulti').innerHTML = ''; return; }
+        $('#fMulti').innerHTML = `<div style="margin-top:6px">${g.members.map(mm => `<div class="srow"><span class="n">${esc(mm.name)}</span>
+          <input type="number" min="0" step="${step(f.currency)}" data-pid="${mm.id}" value="${f.multi[mm.id]}" placeholder="0"></div>`).join('')}</div>
+          <div class="hint" id="fPayHint"></div>`;
+        updateHints();
+      }
+      function drawRows(){
+        m.querySelectorAll('#fSeg button').forEach(b => b.classList.toggle('on', b.dataset.mode === f.mode));
+        $('#fRows').innerHTML = g.members.map(mm => {
+          const id = mm.id;
+          if (f.mode === 'equal') return `<label class="srow"><span class="n"><input type="checkbox" data-sid="${id}" ${f.input.equal[id]?'checked':''}> ${esc(mm.name)}</span><span class="amt" id="sa-${id}"></span></label>`;
+          const suf = f.mode === 'percent' ? '%' : f.mode === 'shares' ? 'share(s)' : f.currency;
+          const st = f.mode === 'exact' ? step(f.currency) : 'any';
+          return `<div class="srow"><span class="n">${esc(mm.name)}</span><input type="number" min="0" step="${st}" data-sid="${id}" value="${f.input[f.mode][id]}" placeholder="0"><span class="small" style="width:52px">${suf}</span><span class="amt" id="sa-${id}"></span></div>`;
+        }).join('');
+        updateHints();
+      }
+      function splitInputMinor(){
+        if (f.mode !== 'exact') return f.input[f.mode];
+        return Object.fromEntries(ids.map(id => [id, f.input.exact[id] === '' ? 0 : toMinor(f.input.exact[id], f.currency)]));
+      }
+      function updateHints(){
+        const t = total(), c = f.currency;
+        const a = approx(t, c, g.home);
+        $('#fFx').textContent = t && a != null ? `≈ ${fmt(a, g.home)} (reference only — saved in ${c})` : '';
+        const res = computeSplit(t, f.mode, splitInputMinor(), ids);
+        const owed = res.owed || {};
+        ids.forEach(id => { const el = m.querySelector('#sa-' + CSS.escape(id)); if (el) el.textContent = owed[id] ? fmt(owed[id], c) : ''; });
+        const h = $('#fHint'); h.className = 'hint';
+        if (!t) h.textContent = '';
+        else if (res.error === 'mismatch') { h.textContent = res.diff > 0 ? `${fmt(res.diff, c)} left to assign` : `${fmt(-res.diff, c)} over the total`; h.classList.add('neg'); }
+        else if (res.error === 'pct') { h.textContent = res.diff > 0 ? `${+res.diff.toFixed(2)}% left to assign` : `${+(-res.diff).toFixed(2)}% over 100%`; h.classList.add('neg'); }
+        else if (res.error) { h.textContent = res.error; h.classList.add('neg'); }
+        else if (f.mode === 'equal') { const n = ids.filter(id => f.input.equal[id]).length; h.textContent = `${fmt(Math.floor(t / n), c)}${t % n ? '–' + fmt(Math.ceil(t / n), c) : ''} per person (${n} ${n===1?'person':'people'})`; h.classList.add('pos'); }
+        else { h.textContent = 'Adds up ✓'; h.classList.add('pos'); }
+        const ph = m.querySelector('#fPayHint');
+        if (ph) {
+          const paid = ids.reduce((s,id) => s + (f.multi[id] === '' ? 0 : toMinor(f.multi[id], c)), 0);
+          const diff = t - paid; ph.className = 'hint ' + (diff ? 'neg' : 'pos');
+          ph.textContent = !t ? '' : diff > 0 ? `${fmt(diff, c)} of the total not yet paid by anyone` : diff < 0 ? `Payments are ${fmt(-diff, c)} over the total` : 'Payments add up ✓';
+        }
+      }
+
+      $('#fCur').onchange = e => { f.currency = e.target.value; $('#fAmt').step = step(f.currency); drawMulti(); drawRows(); };
+      $('#fAmt').oninput = updateHints;
+      $('#fPayer').onchange = e => { if (e.target.value === '__multi') f.payerMode = 'multi'; else { f.payerMode = 'single'; f.payer = e.target.value; } drawMulti(); };
+      $('#fSeg').onclick = e => { const b = e.target.closest('button'); if (b) { f.mode = b.dataset.mode; drawRows(); } };
+      $('#fRows').addEventListener('input', e => {
+        const id = e.target.dataset.sid; if (!id) return;
+        if (f.mode === 'equal') f.input.equal[id] = e.target.checked; else f.input[f.mode][id] = e.target.value;
+        updateHints();
+      });
+      $('#fMulti').addEventListener('input', e => { const id = e.target.dataset.pid; if (id) { f.multi[id] = e.target.value; updateHints(); } });
+
+      $('#fSave').onclick = () => {
+        const err = $('#fErr'); err.textContent = '';
+        const desc = $('#fDesc').value.trim(), t = total(), c = f.currency;
+        if (!desc) return err.textContent = 'Add a description';
+        if (!(t > 0)) return err.textContent = 'Enter an amount above zero';
+        if (!$('#fDate').value) return err.textContent = 'Pick a date';
+        let payers;
+        if (f.payerMode === 'single') payers = {[f.payer]: t};
+        else {
+          payers = {};
+          ids.forEach(id => { const v = f.multi[id] === '' ? 0 : toMinor(f.multi[id], c); if (v > 0) payers[id] = v; });
+          const sum = Object.values(payers).reduce((a,b) => a+b, 0);
+          if (sum !== t) return err.textContent = `What people paid (${fmt(sum,c)}) must equal the total (${fmt(t,c)})`;
+        }
+        const si = splitInputMinor();
+        const res = computeSplit(t, f.mode, si, ids);
+        if (res.error) return err.textContent = res.error === 'mismatch' ? 'Exact amounts must add up to the total' : res.error === 'pct' ? 'Percentages must add up to 100%' : res.error;
+        const owed = Object.fromEntries(Object.entries(res.owed).filter(([,v]) => v > 0));
+        const rec = { id: exp?.id || uid(), type:'expense', desc, amount:t, currency:c, date:$('#fDate').value,
+          category:$('#fCat').value, notes:$('#fNotes').value.trim(), payers, splitMode:f.mode, splitInput:si, owed,
+          createdAt: exp?.createdAt || Date.now(), updatedAt: Date.now() };
+        if (isEdit) g.expenses[g.expenses.findIndex(x => x.id === exp.id)] = rec; else g.expenses.push(rec);
+        g.lastCurrency = c;
+        save(); closeModal(); render(); toast(isEdit ? 'Expense updated' : 'Expense added');
+      };
+      if (isEdit) $('#fDel').onclick = async () => {
+        if (!(await confirmDialog(`Delete “${esc(exp.desc)}”?`))) return openExpenseForm(g, exp);
+        g.expenses = g.expenses.filter(x => x.id !== exp.id); save(); render(); toast('Expense deleted');
+      };
+      drawMulti(); drawRows();
+    });
+}
+
+/* ----- Settle up / payment ----- */
+function openSettleForm(g, preset = {}, pay){
+  const isEdit = !!pay;
+  const ids = g.members.map(m => m.id);
+  const from = pay?.from || preset.from || g.meId || ids[0];
+  const to = pay?.to || preset.to || ids.find(i => i !== from);
+  const cur = pay?.currency || preset.cur || g.lastCurrency || g.defaultCurrency;
+  const amt = pay ? pay.amount : preset.amount ? Number(preset.amount) : 0;
+  const opts = sel => g.members.map(m => `<option value="${m.id}" ${m.id===sel?'selected':''}>${esc(m.name)}${m.id===g.meId?' (you)':''}</option>`).join('');
+  openModal(isEdit ? 'Edit payment' : 'Settle up', `
+    <div class="grid2">
+      <div class="field"><label>Who paid</label><select id="sFrom">${opts(from)}</select></div>
+      <div class="field"><label>Paid to</label><select id="sTo">${opts(to)}</select></div>
+    </div>
+    <div class="field"><label>Amount</label><div class="inline">
+      <select id="sCur" style="flex:0 0 92px">${CURRENCIES.map(c => `<option ${c===cur?'selected':''}>${c}</option>`).join('')}</select>
+      <input type="number" id="sAmt" inputmode="decimal" min="0" step="${dec(cur)?'0.01':'1'}" value="${amt ? toMajor(amt, cur) : ''}"></div>
+      <div class="small" id="sOwe"></div></div>
+    <div class="grid2">
+      <div class="field"><label>Date</label><input type="date" id="sDate" value="${pay?.date || today()}"></div>
+      <div class="field"><label>Note</label><input type="text" id="sNote" value="${esc(pay?.notes||'')}" placeholder="PayNow, cash…"></div>
+    </div>
+    <div class="err" id="sErr"></div>`,
+    `${isEdit ? '<button class="btn danger" id="sDel">Delete</button>' : ''}<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" id="sSave">${isEdit?'Save':'Record payment'}</button>`,
+    m => {
+      const $ = s => m.querySelector(s);
+      const hint = () => {
+        const c = $('#sCur').value, f = $('#sFrom').value, t = $('#sTo').value;
+        const d = simplify(balances(g, c)).find(x => x.from === f && x.to === t);
+        $('#sOwe').innerHTML = d ? `${esc(nameOf(g,f))} ${owes(g,f)} ${esc(nameOf(g,t))} ${money(d.amount, c, g)} <a href="#" id="sFill">use this</a>` : '';
+        const a = $('#sFill'); if (a) a.onclick = ev => { ev.preventDefault(); $('#sAmt').value = toMajor(d.amount, c); };
+      };
+      ['#sFrom','#sTo','#sCur'].forEach(s => $(s).addEventListener('change', () => { $('#sAmt').step = dec($('#sCur').value)?'0.01':'1'; hint(); }));
+      hint();
+      $('#sSave').onclick = () => {
+        const f = $('#sFrom').value, t = $('#sTo').value, c = $('#sCur').value, v = $('#sAmt').value;
+        const a = v === '' ? 0 : toMinor(v, c);
+        if (f === t) return $('#sErr').textContent = 'Pick two different people';
+        if (!(a > 0)) return $('#sErr').textContent = 'Enter an amount above zero';
+        const rec = {id: pay?.id || uid(), type:'payment', from:f, to:t, amount:a, currency:c, date:$('#sDate').value || today(),
+          notes:$('#sNote').value.trim(), createdAt: pay?.createdAt || Date.now(), updatedAt: Date.now()};
+        if (isEdit) g.expenses[g.expenses.findIndex(x => x.id === pay.id)] = rec; else g.expenses.push(rec);
+        save(); closeModal(); render(); toast(isEdit ? 'Payment updated' : 'Payment recorded');
+      };
+      if (isEdit) $('#sDel').onclick = async () => {
+        if (!(await confirmDialog('Delete this payment?'))) return openSettleForm(g, {}, pay);
+        g.expenses = g.expenses.filter(x => x.id !== pay.id); save(); render(); toast('Payment deleted');
+      };
+    });
+}
+
+/* ---------- Share links, import / export ---------- */
+function b64url(bytes){ let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+function unb64url(str){ const s = atob(str.replace(/-/g,'+').replace(/_/g,'/')); const b = new Uint8Array(s.length); for (let i=0;i<s.length;i++) b[i] = s.charCodeAt(i); return b; }
+async function encodeGroup(g){
+  const bytes = new TextEncoder().encode(JSON.stringify(g));
+  if ('CompressionStream' in window) {
+    const buf = await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer();
+    return 'z' + b64url(new Uint8Array(buf));
+  }
+  return 'j' + b64url(bytes);
+}
+async function decodeGroup(code){
+  const bytes = unb64url(code.slice(1));
+  if (code[0] === 'z') {
+    const buf = await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();
+    return JSON.parse(new TextDecoder().decode(buf));
+  }
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+function validGroup(g){ return g && typeof g.id === 'string' && typeof g.name === 'string' && Array.isArray(g.members) && Array.isArray(g.expenses); }
+function upsertGroup(g){
+  g.home = g.home || 'SGD'; g.defaultCurrency = g.defaultCurrency || g.home;
+  const i = state.groups.findIndex(x => x.id === g.id);
+  if (i >= 0) state.groups[i] = g; else state.groups.push(g);
+}
+function download(name, text, type){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], {type})); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || 'group';
+async function handleHash(){
+  const m = location.hash.match(/^#g=(.+)$/); if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  try {
+    const g = await decodeGroup(m[1]);
+    if (!validGroup(g)) throw new Error('invalid');
+    const exists = state.groups.some(x => x.id === g.id);
+    const ok = await confirmDialog(`Load the group <b>${esc(g.name)}</b> (${g.members.length} members, ${g.expenses.length} entries) from this link?
+      ${exists ? '<br><br>You already have this group — your copy will be <b>replaced</b> with the version in the link.' : ''}`, exists ? 'Replace my copy' : 'Load group');
+    if (!ok) return;
+    g.meId = exists ? state.groups.find(x => x.id === g.id).meId : null;
+    upsertGroup(g); state.activeGroupId = g.id; save(); render();
+    toast('Group loaded'); if (!g.meId) { ui.tab = 'settings'; render(); toast('Tip: set “Who are you?”'); }
+  } catch(e) { toast('That share link is broken or incomplete'); }
+}
+
+/* ---------- Demo data ---------- */
+function makeDemo(){
+  const M = ['You','Alex','Priya','Wei Ming'].map(n => ({id:uid(), name:n}));
+  const [me,a,p,w] = M.map(x => x.id), all = M.map(x => x.id);
+  const g = {id:uid(), name:'Bali trip 🌴', defaultCurrency:'IDR', home:'SGD', members:M, meId:me, expenses:[], createdAt:Date.now(), lastCurrency:'IDR'};
+  const d = n => { const x = new Date(); x.setDate(x.getDate() - n); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0,10); };
+  const add = (desc, cur, major, payer, cat, days, mode='equal', input=null) => {
+    const amount = toMinor(major, cur);
+    const si = input || Object.fromEntries(all.map(i => [i, true]));
+    const siMinor = mode === 'exact' ? Object.fromEntries(Object.entries(si).map(([k,v]) => [k, toMinor(v, cur)])) : si;
+    const r = computeSplit(amount, mode, siMinor, all);
+    g.expenses.push({id:uid(), type:'expense', desc, amount, currency:cur, date:d(days), category:cat, notes:'',
+      payers:{[payer]:amount}, splitMode:mode, splitInput:siMinor, owed:r.owed, createdAt:Date.now()-days*1e5});
+  };
+  add('Flights SIN → DPS', 'SGD', 1240, me, 'travel', 9);
+  add('Grab from airport', 'IDR', 285000, a, 'transport', 8);
+  add('Villa (3 nights)', 'IDR', 7800000, p, 'accommodation', 8, 'shares', {[me]:1,[a]:1,[p]:2,[w]:1});
+  add('Seafood dinner, Jimbaran', 'IDR', 1650000, w, 'food', 7);
+  add('Surf lesson', 'IDR', 900000, me, 'entertainment', 6, 'equal', {[me]:true,[a]:true,[p]:false,[w]:true});
+  add('Duty free snacks (KL transit)', 'MYR', 86.40, a, 'food', 3, 'exact', {[me]:20,[a]:30.4,[p]:16,[w]:20});
+  g.expenses.push({id:uid(), type:'payment', from:w, to:me, amount:toMinor(150,'SGD'), currency:'SGD', date:d(2), notes:'PayNow', createdAt:Date.now()});
+  return g;
+}
+
+/* ---------- Events ---------- */
+const actions = {
+  tab: d => { ui.tab = d.tab; render(); },
+  newGroup: () => openGroupForm(),
+  demo: () => { const g = makeDemo(); state.groups.push(g); state.activeGroupId = g.id; save(); render(); toast('Demo group added'); },
+  addExpense: () => openExpenseForm(curGroup()),
+  editExpense: d => { const g = curGroup(); openExpenseForm(g, g.expenses.find(e => e.id === d.id)); },
+  editPayment: d => { const g = curGroup(); openSettleForm(g, {}, g.expenses.find(e => e.id === d.id)); },
+  settle: d => openSettleForm(curGroup(), d.from ? {from:d.from, to:d.to, amount:d.amount, cur:d.cur} : {}),
+  closeModal: () => closeModal(),
+  refreshRates: () => refreshRates(true),
+  addMember: () => {
+    const g = curGroup(), el = document.getElementById('newMember'), n = el.value.trim();
+    if (!n) return el.focus();
+    g.members.push({id:uid(), name:n}); save(); render(); toast(`${n} added`);
+  },
+  removeMember: async d => {
+    const g = curGroup(); if (involved(g, d.id)) return;
+    if (!(await confirmDialog(`Remove ${esc(nameOf(g, d.id))} from the group?`, 'Remove'))) return;
+    g.members = g.members.filter(m => m.id !== d.id); if (g.meId === d.id) g.meId = null; save(); render();
+  },
+  deleteGroup: async () => {
+    const g = curGroup();
+    if (!(await confirmDialog(`Delete <b>${esc(g.name)}</b> and all its expenses? This can’t be undone — export a backup first if unsure.`))) return;
+    state.groups = state.groups.filter(x => x.id !== g.id); state.activeGroupId = state.groups[0]?.id || null; ui.tab = 'expenses';
+    save(); render(); toast('Group deleted');
+  },
+  share: async () => {
+    const g = curGroup();
+    const url = location.href.split('#')[0] + '#g=' + await encodeGroup({...g, meId:null});
+    openModal('Share this group', `
+      <p class="small" style="margin-top:0">Anyone who opens this link gets a <b>copy</b> of the group as it is right now. Later changes aren’t synced — send a fresh link after updates (opening it replaces their copy).</p>
+      <textarea id="shUrl" rows="4" readonly style="font-size:12px">${esc(url)}</textarea>`,
+      `${navigator.share ? '<button class="btn" id="shNative">Share…</button>' : ''}<button class="btn primary" id="shCopy">Copy link</button>`,
+      m => {
+        m.querySelector('#shCopy').onclick = async () => {
+          const ta = m.querySelector('#shUrl'); ta.select();
+          try { await navigator.clipboard.writeText(url); toast('Link copied'); } catch(e) { document.execCommand && document.execCommand('copy'); toast('Link selected — copy it'); }
+        };
+        const n = m.querySelector('#shNative'); if (n) n.onclick = () => navigator.share({title:g.name, url}).catch(()=>{});
+      });
+  },
+  exportJSON: () => download(`splitbook-backup-${today()}.json`, JSON.stringify(state, null, 2), 'application/json'),
+  importJSON: () => document.getElementById('importFile').click(),
+  exportCSV: () => {
+    const g = curGroup();
+    const q = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
+    const head = ['Date','Type','Description','Category','Currency','Amount','Paid by', ...g.members.map(m => `${m.name} share`), 'Notes'];
+    const rows = [...g.expenses].sort((a,b) => a.date.localeCompare(b.date)).map(e => e.type === 'payment'
+      ? [e.date,'Payment',`${nameOf(g,e.from)} paid ${nameOf(g,e.to)}`,'',e.currency,toMajor(e.amount,e.currency),nameOf(g,e.from), ...g.members.map(()=>''), e.notes]
+      : [e.date,'Expense',e.desc,catOf(e.category)[1],e.currency,toMajor(e.amount,e.currency),
+         Object.entries(e.payers).map(([id,v]) => `${nameOf(g,id)} (${toMajor(v,e.currency)})`).join('; '),
+         ...g.members.map(m => e.owed[m.id] ? toMajor(e.owed[m.id], e.currency) : ''), e.notes]);
+    download(`${slug(g.name)}-${today()}.csv`, '﻿' + [head, ...rows].map(r => r.map(q).join(',')).join('\r\n'), 'text/csv');
+  }
+};
+
+document.addEventListener('click', e => {
+  const back = e.target.closest('[data-back]');
+  if (back && e.target === back) return closeModal();
+  const el = e.target.closest('[data-act]'); if (!el) return;
+  e.preventDefault(); actions[el.dataset.act]?.({...el.dataset});
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.querySelector('#modal-root .back')) closeModal(); });
+document.addEventListener('input', e => {
+  if (e.target.id === 'search') { ui.search = e.target.value; renderExpenseList(curGroup()); }
+});
+document.addEventListener('change', e => {
+  const t = e.target, g = curGroup();
+  if (t.id === 'groupSel') { state.activeGroupId = t.value; ui.tab = 'expenses'; ui.search = ''; ui.cat = ''; save(); render(); }
+  else if (t.id === 'catFilter') { ui.cat = t.value; renderExpenseList(g); }
+  else if (t.id === 'simplifyToggle') { ui.simplify = t.checked; render(); }
+  else if (t.id === 'gName') { if (t.value.trim()) { g.name = t.value.trim(); save(); render(); } }
+  else if (t.id === 'gDefCur') { g.defaultCurrency = t.value; g.lastCurrency = t.value; save(); toast('Default currency updated'); }
+  else if (t.id === 'gHome') { g.home = t.value; save(); render(); }
+  else if (t.id === 'gMe') { g.meId = t.value || null; save(); render(); }
+  else if (t.dataset.rename) { const m = g.members.find(x => x.id === t.dataset.rename); if (m && t.value.trim()) { m.name = t.value.trim(); save(); render(); } }
+  else if (t.dataset.rate) {
+    const v = parseFloat(t.value); if (!(v > 0)) return render();
+    state.rates.rates[t.dataset.rate] = v * state.rates.rates[g.home]; state.rates.source = 'manual'; save(); toast('Rate updated');
+  }
+  else if (t.id === 'importFile') {
+    const file = t.files[0]; t.value = ''; if (!file) return;
+    file.text().then(async txt => {
+      const data = JSON.parse(txt);
+      const groups = Array.isArray(data.groups) ? data.groups : validGroup(data) ? [data] : null;
+      if (!groups || !groups.every(validGroup)) throw new Error('bad');
+      if (!(await confirmDialog(`Import ${groups.length} group${groups.length===1?'':'s'}? Groups you already have will be replaced by the imported version.`, 'Import'))) return;
+      groups.forEach(upsertGroup); state.activeGroupId = groups[0]?.id || state.activeGroupId; save(); render(); toast('Imported');
+    }).catch(() => toast('That file isn’t a Splitbook backup'));
+  }
+});
+
+render();
+handleHash();
+refreshRates(false);
+</script>
+</body>
+</html>
