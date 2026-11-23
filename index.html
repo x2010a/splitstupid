@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Splitbook — split expenses with friends</title>
+<title>Splitstupid — split expenses with friends</title>
 <meta name="description" content="Track shared expenses, split bills and settle up — in SGD, MYR, IDR and more.">
 <meta name="theme-color" content="#0f766e">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧾</text></svg>">
@@ -147,12 +147,28 @@ table.t th{font-size:12px;color:var(--muted);font-weight:600}
 <script>
 'use strict';
 /* =====================================================================
-   Splitbook — a self-contained expense splitter (no server needed).
+   Splitstupid — a self-contained expense splitter (no server needed).
    Data lives in this browser's localStorage. Use Export / Share link
    to move it between devices or friends.
    ===================================================================== */
 
-const LS_KEY = 'splitbook.v1';
+/* =====================================================================
+   🔧 FIREBASE SETTINGS — paste your own config here (see README).
+   Leave projectId empty to run in "this device only" mode.
+   These values are not secret; it's fine to commit them to GitHub.
+   ===================================================================== */
+const FIREBASE_CONFIG = {
+  apiKey: "",
+  authDomain: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: "",
+  measurementId: ""   // optional — "G-XXXXXXX" turns on Google Analytics
+};
+const FIREBASE_VERSION = '10.12.2';
+
+const LS_KEY = window.__LS_KEY || 'splitstupid.v1';
 const RATES_URL = 'https://open.er-api.com/v6/latest/USD'; // free, no API key, CORS-enabled
 
 /* ---------- Currencies ---------- */
@@ -226,6 +242,7 @@ function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','
 function today(){ const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0,10); }
 const initials = n => n.trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase() || '?';
 const owes = (g, id) => id === g.meId ? 'owe' : 'owes';
+const who = (g, id, cap) => id === g.meId ? (cap ? 'You' : 'you') : nameOf(g, id);
 const avatar = (g, id) => `<div class="avatar" style="background:${colorOf(g,id)}">${esc(initials(nameOf(g,id)))}</div>`;
 
 /* ---------- Money maths (integer minor units, no float drift) ---------- */
@@ -319,6 +336,146 @@ function pairwise(g, cur){
 }
 const involved = (g, id) => g.expenses.some(e => e.type==='payment' ? (e.from===id||e.to===id) : ((e.payers[id]||0) || (e.owed[id]||0)));
 
+/* ---------- Cloud sync (Firebase Firestore) ----------
+   groups/{groupId}                → name, members, defaultCurrency
+   groups/{groupId}/entries/{id}   → one doc per expense / payment
+   The long random group ID is the "key": only people with the link can open it.
+   Per-device settings (who you are, ≈ currency) are never uploaded.        */
+let fb = null;                 // Firestore functions + db, once loaded
+let cloudState = 'off';        // off | loading | ready | error
+const subs = {};               // groupId -> [unsubscribe fns]
+const syncStatus = {};         // groupId -> live | saving | offline
+let renderPending = false;
+// Analytics: only counts actions (never names, amounts or descriptions).
+const trackQueue = [];
+let track = (name, params = {}) => { trackQueue.push([name, params]); };
+
+const cloudConfigured = () => !!(window.__FB_MOCK || (FIREBASE_CONFIG && FIREBASE_CONFIG.projectId));
+function randomId(n = 20){
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  const a = crypto.getRandomValues(new Uint8Array(n));
+  return [...a].map(x => chars[x % chars.length]).join('');
+}
+const clean = o => JSON.parse(JSON.stringify(o));
+const metaOf = g => ({ name:g.name, members:g.members, defaultCurrency:g.defaultCurrency || 'SGD', createdAt:g.createdAt || Date.now(), updatedAt:Date.now() });
+
+async function initCloud(){
+  if (!cloudConfigured()) return;
+  cloudState = 'loading';
+  try {
+    if (window.__FB_MOCK) fb = window.__FB_MOCK;
+    else {
+      const base = `https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/`;
+      const [appM, fsM] = await Promise.all([import(base + 'firebase-app.js'), import(base + 'firebase-firestore.js')]);
+      const app = appM.initializeApp(FIREBASE_CONFIG);
+      let db;
+      try { db = fsM.initializeFirestore(app, { localCache: fsM.persistentLocalCache({ tabManager: fsM.persistentMultipleTabManager() }) }); }
+      catch(e) { db = fsM.getFirestore(app); }
+      fb = { ...fsM, db };
+      if (FIREBASE_CONFIG.measurementId) {
+        import(base + 'firebase-analytics.js').then(async aM => {
+          if (!(await aM.isSupported())) return;
+          const an = aM.getAnalytics(app);
+          track = (name, params = {}) => { try { aM.logEvent(an, name, params); } catch(e) {} };
+          trackQueue.splice(0).forEach(([n, p]) => track(n, p));
+        }).catch(e => console.warn('Analytics not loaded', e));
+      }
+    }
+    cloudState = 'ready';
+    state.groups.filter(g => g.synced).forEach(subscribe);
+    render();
+  } catch(e) {
+    console.error('Firebase failed to load', e);
+    cloudState = 'error'; render();
+  }
+}
+const cloudReady = () => new Promise(res => {
+  const t = setInterval(() => { if (cloudState === 'ready' || cloudState === 'error' || cloudState === 'off') { clearInterval(t); res(cloudState === 'ready'); } }, 50);
+});
+const gRef = gid => fb.doc(fb.db, 'groups', gid);
+const eRef = (gid, id) => fb.doc(fb.db, 'groups', gid, 'entries', id);
+function syncErr(e){ console.error(e); toast('⚠️ Sync failed — check your Firebase setup'); }
+
+function subscribe(g){
+  if (!fb || subs[g.id]) return;
+  const gid = g.id;
+  const onErr = e => { console.error(e); syncStatus[gid] = 'error'; scheduleRender(); };
+  const u1 = fb.onSnapshot(gRef(gid), { includeMetadataChanges:true }, snap => {
+    const lg = state.groups.find(x => x.id === gid); if (!lg) return;
+    if (!snap.exists()) {
+      if (snap.metadata.fromCache) return;
+      if (lg._joining) { unsubscribe(gid); state.groups = state.groups.filter(x => x.id !== gid);
+        if (state.activeGroupId === gid) state.activeGroupId = state.groups[0]?.id || null;
+        save(); render(); return toast('Group not found — check the link'); }
+      unsubscribe(gid); lg.synced = false; save(); scheduleRender();
+      return toast(`“${lg.name}” was deleted online — kept as a local copy`);
+    }
+    const d = snap.data();
+    lg.name = d.name; lg.members = d.members || []; lg.defaultCurrency = d.defaultCurrency || lg.defaultCurrency || 'SGD';
+    if (lg._joining) { delete lg._joining; track('group_joined'); save(); render(); askWhoAmI(lg); return; }
+    save(); scheduleRender();
+  }, onErr);
+  const u2 = fb.onSnapshot(fb.collection(gRef(gid), 'entries'), { includeMetadataChanges:true }, snap => {
+    const lg = state.groups.find(x => x.id === gid); if (!lg) return;
+    lg.expenses = snap.docs.map(d => d.data());
+    syncStatus[gid] = snap.metadata.hasPendingWrites ? 'saving' : snap.metadata.fromCache ? 'offline' : 'live';
+    save(); scheduleRender();
+  }, onErr);
+  subs[gid] = [u1, u2];
+}
+function unsubscribe(gid){ (subs[gid] || []).forEach(u => u()); delete subs[gid]; }
+
+// Writes: local state changes first (instant UI), then the cloud copy.
+function cloudSaveEntry(g, rec){ if (g.synced && fb) fb.setDoc(eRef(g.id, rec.id), clean(rec)).catch(syncErr); }
+function cloudDeleteEntry(g, id){ if (g.synced && fb) fb.deleteDoc(eRef(g.id, id)).catch(syncErr); }
+function cloudSaveMeta(g){ if (g.synced && fb) fb.setDoc(gRef(g.id), clean(metaOf(g)), { merge:true }).catch(syncErr); }
+
+// Upload a group (new or existing local one) and start syncing it.
+async function uploadGroup(g){
+  const ops = [['set', gRef(g.id), clean(metaOf(g))], ...g.expenses.map(e => ['set', eRef(g.id, e.id), clean(e)])];
+  for (let i = 0; i < ops.length; i += 400) {
+    const b = fb.writeBatch(fb.db);
+    ops.slice(i, i + 400).forEach(([, ref, data]) => b.set(ref, data));
+    await b.commit();
+  }
+  g.synced = true; save(); subscribe(g);
+}
+async function deleteGroupOnline(g){
+  const ids = g.expenses.map(e => e.id);
+  for (let i = 0; i < ids.length; i += 400) {
+    const b = fb.writeBatch(fb.db);
+    ids.slice(i, i + 400).forEach(id => b.delete(eRef(g.id, id)));
+    await b.commit();
+  }
+  await fb.deleteDoc(gRef(g.id));
+}
+
+// Don't redraw under someone's fingers while they're typing in the page.
+function scheduleRender(){
+  const a = document.activeElement;
+  if (a && document.getElementById('app').contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && a.id !== 'search') { renderPending = true; return; }
+  if (a && a.id === 'search') { renderTop(); renderExpenseList(curGroup()); return; }
+  render();
+}
+document.addEventListener('focusout', () => setTimeout(() => { if (renderPending) { renderPending = false; render(); } }, 0));
+
+function askWhoAmI(g){
+  if (curGroup()?.id !== g.id) return;
+  openModal(`Welcome to ${esc(g.name)} 👋`, `
+    <p class="small" style="margin-top:0">Which one are you? This is only saved on this device, so the app can show “you owe” and “you lent”.</p>
+    <div style="display:flex;flex-direction:column;gap:6px">${g.members.map(m => `<button class="btn" style="text-align:left;display:flex;gap:10px;align-items:center" data-me="${m.id}">${avatar(g,m.id)} ${esc(m.name)}</button>`).join('')}</div>
+    <div class="member-row" style="margin-top:12px"><input type="text" id="waNew" placeholder="Not listed? Type your name"><button class="btn" id="waAdd">Add me</button></div>`,
+    `<button class="btn" data-act="closeModal">Skip</button>`,
+    m => {
+      m.querySelectorAll('[data-me]').forEach(b => b.onclick = () => { g.meId = b.dataset.me; save(); closeModal(); render(); });
+      m.querySelector('#waAdd').onclick = () => {
+        const n = m.querySelector('#waNew').value.trim(); if (!n) return;
+        const mem = {id:uid(), name:n}; g.members.push(mem); g.meId = mem.id;
+        save(); cloudSaveMeta(g); closeModal(); render(); toast(`Welcome, ${n}!`);
+      };
+    });
+}
+
 /* ---------- Exchange rates (display only) ---------- */
 async function refreshRates(force){
   const age = Date.now() - (state.rates.updated || 0);
@@ -355,7 +512,7 @@ function render(){
 function renderTop(){
   const g = curGroup();
   document.getElementById('top').innerHTML = `
-    <div class="brand">🧾 Split<span>book</span></div>
+    <div class="brand">🧾 Split<span>stupid</span></div>
     ${state.groups.length ? `<select id="groupSel" style="width:auto;max-width:220px" aria-label="Switch group">
       ${state.groups.map(x => `<option value="${x.id}" ${g&&x.id===g.id?'selected':''}>${esc(x.name)}</option>`).join('')}
     </select>
@@ -386,12 +543,18 @@ function myBalanceChips(g){
   return `<div class="chips">${chips || '<span class="chip">You are all settled up ✓</span>'}</div>`;
 }
 
+function syncLabel(g){
+  if (!g.synced) return '📱 This device only';
+  if (cloudState === 'loading') return '☁️ Connecting…';
+  if (cloudState !== 'ready') return '⚠️ Can’t reach sync — showing saved copy';
+  return ({live:'<span class="pos">● Live sync</span>', saving:'☁️ Saving…', offline:'📴 Offline — changes will sync later', error:'<span class="neg">⚠️ Sync error</span>'})[syncStatus[g.id]] || '☁️ Connecting…';
+}
 function renderSummary(g){
   const n = g.expenses.filter(e => e.type==='expense').length;
   return `<div class="card summary">
     <div>
       <h1>${esc(g.name)}</h1>
-      <div class="meta">${g.members.length} member${g.members.length===1?'':'s'} · ${n} expense${n===1?'':'s'}</div>
+      <div class="meta">${g.members.length} member${g.members.length===1?'':'s'} · ${n} expense${n===1?'':'s'} · ${syncLabel(g)}</div>
       ${myBalanceChips(g)}
     </div>
     <div class="acts">
@@ -501,7 +664,7 @@ function renderBalances(g){
       </div>
       ${debts.length ? `<div class="card" style="padding:0;margin-top:8px">
         ${debts.map(d => `<div class="debt">
-          <div class="txt"><b>${esc(nameOf(g,d.from))}</b> ${owes(g,d.from)} <b>${esc(nameOf(g,d.to))}</b> <b class="neg">${esc(fmt(d.amount,c))}</b> ${fxLine(d.amount,c,g)}</div>
+          <div class="txt"><b>${esc(who(g,d.from,1))}</b> ${owes(g,d.from)} <b>${esc(who(g,d.to))}</b> <b class="neg">${esc(fmt(d.amount,c))}</b> ${fxLine(d.amount,c,g)}</div>
           <button class="btn sm" data-act="settle" data-from="${d.from}" data-to="${d.to}" data-amount="${d.amount}" data-cur="${c}">Record payment</button>
         </div>`).join('')}</div>`
       : `<p class="small" style="margin:8px 4px">Everyone is settled up in ${c} ✓</p>`}`;
@@ -570,10 +733,17 @@ function renderSettings(g){
       <div style="margin-top:10px"><button class="btn sm" data-act="refreshRates">↻ Fetch latest rates</button></div>
     </div>
 
-    <div class="card"><h2 class="sec">Share & back up</h2>
-      <p class="small" style="margin-top:0">Data is stored in this browser only. Send friends a share link so they can load a copy of this group, or export a backup file.</p>
+    <div class="card"><h2 class="sec">Share & sync</h2>
+      ${g.synced ? `<p class="small" style="margin-top:0">☁️ This group syncs live. Send friends the invite link once — everyone can add and edit expenses and sees changes instantly.</p>
+        <button class="btn primary" data-act="share">🔗 Invite link</button>`
+      : cloudState === 'ready' ? `<p class="small" style="margin-top:0">📱 This group is only on this device. Turn on sync so friends can join and add expenses too.</p>
+        <button class="btn primary" data-act="startSync">☁️ Start syncing this group</button> <button class="btn" data-act="share">🔗 Send a copy</button>`
+      : `<p class="small" style="margin-top:0">📱 This group is only on this device. ${cloudConfigured() ? 'Sync is unavailable right now.' : 'Live sync isn’t set up — see the README to connect Firebase.'} You can still send a one-off copy.</p>
+        <button class="btn" data-act="share">🔗 Send a copy</button>`}
+    </div>
+
+    <div class="card"><h2 class="sec">Back up</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn" data-act="share">🔗 Share link</button>
         <button class="btn" data-act="exportCSV">⬇ Export CSV</button>
         <button class="btn" data-act="exportJSON">⬇ Backup (all groups)</button>
         <button class="btn" data-act="importJSON">⬆ Import backup</button>
@@ -581,7 +751,9 @@ function renderSettings(g){
     </div>
 
     <div class="card"><h2 class="sec">Danger zone</h2>
-      <button class="btn danger" data-act="deleteGroup">Delete this group</button></div>
+      ${g.synced ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="leaveGroup">Remove from this device</button>
+        <button class="btn danger" data-act="deleteGroup">Delete for everyone</button></div>`
+      : `<button class="btn danger" data-act="deleteGroup">Delete this group</button>`}</div>
   </div>`;
 }
 
@@ -616,6 +788,7 @@ function openGroupForm(){
     </div>
     <div class="field"><label>Your name</label><input type="text" id="ngMe" placeholder="You"></div>
     <div class="field"><label>Other members (one per line)</label><textarea id="ngOthers" rows="4" placeholder="Alex&#10;Priya&#10;Wei Ming"></textarea></div>
+    ${cloudState === 'ready' ? `<label class="small" style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="checkbox" id="ngSync" checked style="width:18px;height:18px;accent-color:var(--accent)"> ☁️ Sync online so friends can add expenses too</label>` : ''}
     <div class="err" id="ngErr"></div>`,
     `<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" id="ngSave">Create group</button>`,
     m => { m.querySelector('#ngSave').onclick = () => {
@@ -627,8 +800,13 @@ function openGroupForm(){
       const members = [me, ...others].map(n => ({id:uid(), name:n}));
       const cur = m.querySelector('#ngCur').value;
       const g = {id:uid(), name, defaultCurrency:cur, home:m.querySelector('#ngHome').value, members, meId:members[0].id, expenses:[], createdAt:Date.now()};
+      const sync = m.querySelector('#ngSync')?.checked;
+      if (sync) g.id = randomId();
       state.groups.push(g); state.activeGroupId = g.id; ui.tab = 'expenses';
-      save(); closeModal(); render(); toast('Group created');
+      save(); closeModal(); render();
+      track('group_created', {synced: !!sync, currency: cur, members: members.length});
+      if (sync) uploadGroup(g).then(() => toast('Group created — invite friends from Group settings')).catch(syncErr);
+      else toast('Group created');
     }; });
 }
 
@@ -761,12 +939,14 @@ function openExpenseForm(g, exp){
           category:$('#fCat').value, notes:$('#fNotes').value.trim(), payers, splitMode:f.mode, splitInput:si, owed,
           createdAt: exp?.createdAt || Date.now(), updatedAt: Date.now() };
         if (isEdit) g.expenses[g.expenses.findIndex(x => x.id === exp.id)] = rec; else g.expenses.push(rec);
+        cloudSaveEntry(g, rec);
+        track(isEdit ? 'expense_edited' : 'expense_added', {currency: c, split_mode: f.mode, category: rec.category, multi_payer: f.payerMode === 'multi'});
         g.lastCurrency = c;
         save(); closeModal(); render(); toast(isEdit ? 'Expense updated' : 'Expense added');
       };
       if (isEdit) $('#fDel').onclick = async () => {
         if (!(await confirmDialog(`Delete “${esc(exp.desc)}”?`))) return openExpenseForm(g, exp);
-        g.expenses = g.expenses.filter(x => x.id !== exp.id); save(); render(); toast('Expense deleted');
+        g.expenses = g.expenses.filter(x => x.id !== exp.id); cloudDeleteEntry(g, exp.id); track('expense_deleted'); save(); render(); toast('Expense deleted');
       };
       drawMulti(); drawRows();
     });
@@ -801,7 +981,7 @@ function openSettleForm(g, preset = {}, pay){
       const hint = () => {
         const c = $('#sCur').value, f = $('#sFrom').value, t = $('#sTo').value;
         const d = simplify(balances(g, c)).find(x => x.from === f && x.to === t);
-        $('#sOwe').innerHTML = d ? `${esc(nameOf(g,f))} ${owes(g,f)} ${esc(nameOf(g,t))} ${money(d.amount, c, g)} <a href="#" id="sFill">use this</a>` : '';
+        $('#sOwe').innerHTML = d ? `${esc(who(g,f,1))} ${owes(g,f)} ${esc(who(g,t))} ${money(d.amount, c, g)} <a href="#" id="sFill">use this</a>` : '';
         const a = $('#sFill'); if (a) a.onclick = ev => { ev.preventDefault(); $('#sAmt').value = toMajor(d.amount, c); };
       };
       ['#sFrom','#sTo','#sCur'].forEach(s => $(s).addEventListener('change', () => { $('#sAmt').step = dec($('#sCur').value)?'0.01':'1'; hint(); }));
@@ -814,11 +994,13 @@ function openSettleForm(g, preset = {}, pay){
         const rec = {id: pay?.id || uid(), type:'payment', from:f, to:t, amount:a, currency:c, date:$('#sDate').value || today(),
           notes:$('#sNote').value.trim(), createdAt: pay?.createdAt || Date.now(), updatedAt: Date.now()};
         if (isEdit) g.expenses[g.expenses.findIndex(x => x.id === pay.id)] = rec; else g.expenses.push(rec);
+        cloudSaveEntry(g, rec);
+        track(isEdit ? 'payment_edited' : 'payment_recorded', {currency: c});
         save(); closeModal(); render(); toast(isEdit ? 'Payment updated' : 'Payment recorded');
       };
       if (isEdit) $('#sDel').onclick = async () => {
         if (!(await confirmDialog('Delete this payment?'))) return openSettleForm(g, {}, pay);
-        g.expenses = g.expenses.filter(x => x.id !== pay.id); save(); render(); toast('Payment deleted');
+        g.expenses = g.expenses.filter(x => x.id !== pay.id); cloudDeleteEntry(g, pay.id); save(); render(); toast('Payment deleted');
       };
     });
 }
@@ -844,6 +1026,8 @@ async function decodeGroup(code){
 }
 function validGroup(g){ return g && typeof g.id === 'string' && typeof g.name === 'string' && Array.isArray(g.members) && Array.isArray(g.expenses); }
 function upsertGroup(g){
+  delete g._joining;
+  if (g.synced && !fb) g.synced = false;
   g.home = g.home || 'SGD'; g.defaultCurrency = g.defaultCurrency || g.home;
   const i = state.groups.findIndex(x => x.id === g.id);
   if (i >= 0) state.groups[i] = g; else state.groups.push(g);
@@ -855,6 +1039,17 @@ function download(name, text, type){
 }
 const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || 'group';
 async function handleHash(){
+  const j = location.hash.match(/^#join=([A-Za-z0-9]{12,40})$/);
+  if (j) {
+    history.replaceState(null, '', location.pathname + location.search);
+    const gid = j[1];
+    if (state.groups.some(x => x.id === gid && x.synced)) { state.activeGroupId = gid; ui.tab = 'expenses'; save(); render(); return; }
+    if (!(await cloudReady())) return toast(cloudConfigured() ? 'Can’t reach sync right now — try the link again later' : 'This app copy isn’t connected to Firebase');
+    state.groups = state.groups.filter(x => x.id !== gid);
+    state.groups.push({id:gid, name:'Joining…', members:[], expenses:[], home:'SGD', defaultCurrency:'SGD', meId:null, synced:true, _joining:true, createdAt:Date.now()});
+    state.activeGroupId = gid; ui.tab = 'expenses'; save(); render(); subscribe(curGroup());
+    return;
+  }
   const m = location.hash.match(/^#g=(.+)$/); if (!m) return;
   history.replaceState(null, '', location.pathname + location.search);
   try {
@@ -896,9 +1091,9 @@ function makeDemo(){
 
 /* ---------- Events ---------- */
 const actions = {
-  tab: d => { ui.tab = d.tab; render(); },
+  tab: d => { ui.tab = d.tab; track('tab_viewed', {tab: d.tab}); render(); },
   newGroup: () => openGroupForm(),
-  demo: () => { const g = makeDemo(); state.groups.push(g); state.activeGroupId = g.id; save(); render(); toast('Demo group added'); },
+  demo: () => { track('demo_opened'); const g = makeDemo(); state.groups.push(g); state.activeGroupId = g.id; save(); render(); toast('Demo group added'); },
   addExpense: () => openExpenseForm(curGroup()),
   editExpense: d => { const g = curGroup(); openExpenseForm(g, g.expenses.find(e => e.id === d.id)); },
   editPayment: d => { const g = curGroup(); openSettleForm(g, {}, g.expenses.find(e => e.id === d.id)); },
@@ -908,21 +1103,51 @@ const actions = {
   addMember: () => {
     const g = curGroup(), el = document.getElementById('newMember'), n = el.value.trim();
     if (!n) return el.focus();
-    g.members.push({id:uid(), name:n}); save(); render(); toast(`${n} added`);
+    g.members.push({id:uid(), name:n}); save(); cloudSaveMeta(g); render(); toast(`${n} added`);
   },
   removeMember: async d => {
     const g = curGroup(); if (involved(g, d.id)) return;
     if (!(await confirmDialog(`Remove ${esc(nameOf(g, d.id))} from the group?`, 'Remove'))) return;
-    g.members = g.members.filter(m => m.id !== d.id); if (g.meId === d.id) g.meId = null; save(); render();
+    g.members = g.members.filter(m => m.id !== d.id); if (g.meId === d.id) g.meId = null; save(); cloudSaveMeta(g); render();
   },
   deleteGroup: async () => {
     const g = curGroup();
-    if (!(await confirmDialog(`Delete <b>${esc(g.name)}</b> and all its expenses? This can’t be undone — export a backup first if unsure.`))) return;
+    const msg = g.synced ? `Delete <b>${esc(g.name)}</b> <b>for everyone</b>? All members will lose it. This can’t be undone.`
+                         : `Delete <b>${esc(g.name)}</b> and all its expenses? This can’t be undone — export a backup first if unsure.`;
+    if (!(await confirmDialog(msg))) return;
+    if (g.synced) { unsubscribe(g.id); try { await deleteGroupOnline(g); } catch(e) { return syncErr(e); } }
     state.groups = state.groups.filter(x => x.id !== g.id); state.activeGroupId = state.groups[0]?.id || null; ui.tab = 'expenses';
     save(); render(); toast('Group deleted');
   },
+  leaveGroup: async () => {
+    const g = curGroup();
+    if (!(await confirmDialog(`Remove <b>${esc(g.name)}</b> from this device? It stays online for everyone else, and you can rejoin with the invite link.`, 'Remove'))) return;
+    unsubscribe(g.id); state.groups = state.groups.filter(x => x.id !== g.id); state.activeGroupId = state.groups[0]?.id || null; ui.tab = 'expenses';
+    save(); render(); toast('Removed from this device');
+  },
+  startSync: async () => {
+    const g = curGroup();
+    if (!(await confirmDialog(`Upload <b>${esc(g.name)}</b> so friends can join and add expenses? You’ll get an invite link to share.`, 'Start syncing'))) return;
+    const oldId = g.id; g.id = randomId();
+    if (state.activeGroupId === oldId) state.activeGroupId = g.id;
+    try { await uploadGroup(g); track('sync_started'); render(); toast('Syncing on'); actions.share(); }
+    catch(e) { g.id = oldId; state.activeGroupId = oldId; g.synced = false; save(); render(); syncErr(e); }
+  },
   share: async () => {
     const g = curGroup();
+    if (g.synced) {
+      const url = location.href.split('#')[0] + '#join=' + g.id;
+      const msg = `Join "${g.name}" on Splitstupid to track our expenses: ${url}`;
+      return openModal('Invite friends', `
+        <p class="small" style="margin-top:0">Send this link once. Anyone who opens it can see and add expenses in this group, and everything stays in sync. Only share it with people in the group.</p>
+        <textarea id="shUrl" rows="3" readonly style="font-size:12px">${esc(url)}</textarea>`,
+        `<a class="btn" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">WhatsApp</a>${navigator.share ? '<button class="btn" id="shNative">Share…</button>' : ''}<button class="btn primary" id="shCopy">Copy link</button>`,
+        m => {
+          m.querySelector('a[href^="https://wa.me"]').addEventListener('click', () => track('invite_shared', {method:'whatsapp'}));
+          m.querySelector('#shCopy').onclick = async () => { track('invite_shared', {method:'copy'}); m.querySelector('#shUrl').select(); try { await navigator.clipboard.writeText(url); toast('Link copied'); } catch(e) { toast('Link selected — copy it'); } };
+          const n = m.querySelector('#shNative'); if (n) n.onclick = () => navigator.share({title:g.name, text:msg, url}).catch(()=>{});
+        });
+    }
     const url = location.href.split('#')[0] + '#g=' + await encodeGroup({...g, meId:null});
     openModal('Share this group', `
       <p class="small" style="margin-top:0">Anyone who opens this link gets a <b>copy</b> of the group as it is right now. Later changes aren’t synced — send a fresh link after updates (opening it replaces their copy).</p>
@@ -936,9 +1161,10 @@ const actions = {
         const n = m.querySelector('#shNative'); if (n) n.onclick = () => navigator.share({title:g.name, url}).catch(()=>{});
       });
   },
-  exportJSON: () => download(`splitbook-backup-${today()}.json`, JSON.stringify(state, null, 2), 'application/json'),
+  exportJSON: () => track('backup_exported') || download(`splitstupid-backup-${today()}.json`, JSON.stringify(state, null, 2), 'application/json'),
   importJSON: () => document.getElementById('importFile').click(),
   exportCSV: () => {
+    track('csv_exported');
     const g = curGroup();
     const q = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
     const head = ['Date','Type','Description','Category','Currency','Amount','Paid by', ...g.members.map(m => `${m.name} share`), 'Notes'];
@@ -966,11 +1192,11 @@ document.addEventListener('change', e => {
   if (t.id === 'groupSel') { state.activeGroupId = t.value; ui.tab = 'expenses'; ui.search = ''; ui.cat = ''; save(); render(); }
   else if (t.id === 'catFilter') { ui.cat = t.value; renderExpenseList(g); }
   else if (t.id === 'simplifyToggle') { ui.simplify = t.checked; render(); }
-  else if (t.id === 'gName') { if (t.value.trim()) { g.name = t.value.trim(); save(); render(); } }
-  else if (t.id === 'gDefCur') { g.defaultCurrency = t.value; g.lastCurrency = t.value; save(); toast('Default currency updated'); }
+  else if (t.id === 'gName') { if (t.value.trim()) { g.name = t.value.trim(); save(); cloudSaveMeta(g); render(); } }
+  else if (t.id === 'gDefCur') { g.defaultCurrency = t.value; g.lastCurrency = t.value; save(); cloudSaveMeta(g); toast('Default currency updated'); }
   else if (t.id === 'gHome') { g.home = t.value; save(); render(); }
   else if (t.id === 'gMe') { g.meId = t.value || null; save(); render(); }
-  else if (t.dataset.rename) { const m = g.members.find(x => x.id === t.dataset.rename); if (m && t.value.trim()) { m.name = t.value.trim(); save(); render(); } }
+  else if (t.dataset.rename) { const m = g.members.find(x => x.id === t.dataset.rename); if (m && t.value.trim()) { m.name = t.value.trim(); save(); cloudSaveMeta(g); render(); } }
   else if (t.dataset.rate) {
     const v = parseFloat(t.value); if (!(v > 0)) return render();
     state.rates.rates[t.dataset.rate] = v * state.rates.rates[g.home]; state.rates.source = 'manual'; save(); toast('Rate updated');
@@ -982,13 +1208,15 @@ document.addEventListener('change', e => {
       const groups = Array.isArray(data.groups) ? data.groups : validGroup(data) ? [data] : null;
       if (!groups || !groups.every(validGroup)) throw new Error('bad');
       if (!(await confirmDialog(`Import ${groups.length} group${groups.length===1?'':'s'}? Groups you already have will be replaced by the imported version.`, 'Import'))) return;
-      groups.forEach(upsertGroup); state.activeGroupId = groups[0]?.id || state.activeGroupId; save(); render(); toast('Imported');
-    }).catch(() => toast('That file isn’t a Splitbook backup'));
+      groups.forEach(upsertGroup); groups.filter(x => x.synced).forEach(x => subscribe(state.groups.find(y => y.id === x.id))); state.activeGroupId = groups[0]?.id || state.activeGroupId; save(); render(); toast('Imported');
+    }).catch(() => toast('That file isn’t a Splitstupid backup'));
   }
 });
 
 render();
+initCloud();
 handleHash();
+window.addEventListener('hashchange', handleHash);
 refreshRates(false);
 </script>
 </body>
