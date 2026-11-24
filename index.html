@@ -53,6 +53,9 @@ textarea{resize:vertical;min-height:60px}
 .month{display:flex;justify-content:space-between;align-items:baseline;margin:16px 4px 6px;font-size:13px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;gap:10px}
 .month small{font-weight:500;text-transform:none;letter-spacing:0;text-align:right}
 .list{display:flex;flex-direction:column;gap:6px}
+.day{display:flex;justify-content:space-between;align-items:baseline;margin:12px 4px 6px;font-size:13px;font-weight:600;color:var(--ink)}
+.day small{color:var(--muted);font-weight:500}
+.main .by{font-size:12px;color:var(--muted);opacity:.85}
 .row{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer}
 .row:hover{border-color:var(--accent)}
 .date{width:38px;text-align:center;line-height:1.1;color:var(--muted);flex:none}
@@ -459,7 +462,7 @@ function scheduleRender(){
 }
 document.addEventListener('focusout', () => setTimeout(() => { if (renderPending) { renderPending = false; render(); } }, 0));
 
-function askWhoAmI(g){
+function askWhoAmI(g, then){
   if (curGroup()?.id !== g.id) return;
   openModal(`Welcome to ${esc(g.name)} 👋`, `
     <p class="small" style="margin-top:0">Which one are you? This is only saved on this device, so the app can show “you owe” and “you lent”.</p>
@@ -467,11 +470,11 @@ function askWhoAmI(g){
     <div class="member-row" style="margin-top:12px"><input type="text" id="waNew" placeholder="Not listed? Type your name"><button class="btn" id="waAdd">Add me</button></div>`,
     `<button class="btn" data-act="closeModal">Skip</button>`,
     m => {
-      m.querySelectorAll('[data-me]').forEach(b => b.onclick = () => { g.meId = b.dataset.me; save(); closeModal(); render(); });
+      m.querySelectorAll('[data-me]').forEach(b => b.onclick = () => { g.meId = b.dataset.me; save(); closeModal(); render(); if (then) then(); });
       m.querySelector('#waAdd').onclick = () => {
         const n = m.querySelector('#waNew').value.trim(); if (!n) return;
         const mem = {id:uid(), name:n}; g.members.push(mem); g.meId = mem.id;
-        save(); cloudSaveMeta(g); closeModal(); render(); toast(`Welcome, ${n}!`);
+        save(); cloudSaveMeta(g); closeModal(); render(); toast(`Welcome, ${n}!`); if (then) then();
       };
     });
 }
@@ -608,22 +611,40 @@ function renderExpenseList(g){
     const tot = {};
     items.filter(e => e.type==='expense').forEach(e => tot[e.currency] = (tot[e.currency]||0) + e.amount);
     const totTxt = Object.entries(tot).map(([c,v]) => fmt(v,c)).join(' · ');
-    return `<div class="month"><span>${label}</span><small>${esc(totTxt)}</small></div>
-      <div class="list">${items.map(e => rowHTML(g,e)).join('')}</div>`;
+    const days = {};
+    for (const e of items) (days[e.date] = days[e.date] || []).push(e);
+    return `<div class="month"><span>${label}</span><small>${esc(totTxt)}</small></div>` +
+      Object.entries(days).map(([date, dayItems]) => {
+        const dt = {}; dayItems.filter(e => e.type==='expense').forEach(e => dt[e.currency] = (dt[e.currency]||0) + e.amount);
+        return `<div class="day"><span>${esc(dayLabel(date))}</span><small>${esc(Object.entries(dt).map(([c,v]) => fmt(v,c)).join(' · '))}</small></div>
+          <div class="list">${dayItems.map(e => rowHTML(g,e)).join('')}</div>`;
+      }).join('');
   }).join('');
 }
 
+function dayLabel(date){
+  const t = today(), y = new Date(Date.now() - 864e5 - new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
+  const full = new Date(date + 'T00:00').toLocaleDateString('en-SG', {weekday:'short', day:'numeric', month:'short'});
+  return date === t ? `Today · ${full}` : date === y ? `Yesterday · ${full}` : full;
+}
+// "Added by Priya" / "Added by Priya · edited by Alex"
+function byLine(g, e){
+  if (!e.createdBy) return '';
+  let t = `Added by ${who(g, e.createdBy)}`;
+  if (e.updatedBy && e.updatedBy !== e.createdBy) t += ` · edited by ${who(g, e.updatedBy)}`;
+  else if (e.updatedBy && e.updatedAt && e.updatedAt - (e.createdAt||0) > 60e3) t += ' · edited';
+  return `<div class="by">${esc(t)}</div>`;
+}
 function rowHTML(g, e){
-  const d = new Date(e.date + 'T00:00');
-  const badge = `<div class="date"><span>${d.toLocaleDateString('en-SG',{month:'short'})}</span><b>${d.getDate()}</b></div>`;
+  const badge = '';
   if (e.type === 'payment') {
     return `<button class="row" data-act="editPayment" data-id="${e.id}">${badge}<div class="ico">💸</div>
       <div class="main"><div class="t">${esc(nameOf(g,e.from))} paid ${esc(nameOf(g,e.to))}</div>
-      <div class="s">${esc(e.notes || 'Settle up')}</div></div>
+      <div class="s">${esc(e.notes || 'Settle up')}</div>${byLine(g,e)}</div>
       <div class="right"><b class="pos">${esc(fmt(e.amount, e.currency))}</b>${fxLine(e.amount,e.currency,g)}</div></button>`;
   }
   const payerIds = Object.keys(e.payers).filter(id => e.payers[id] > 0);
-  const who = payerIds.length > 1 ? `${payerIds.length} people paid` : `${esc(nameOf(g, payerIds[0]))} paid`;
+  const paidBy = payerIds.length > 1 ? `${payerIds.length} people paid` : `${esc(who(g, payerIds[0], 1))} paid`;
   let right = `<small class="muted">total</small><b>${esc(fmt(e.amount, e.currency))}</b>${fxLine(e.amount,e.currency,g)}`;
   if (g.meId) {
     const n = (e.payers[g.meId]||0) - (e.owed[g.meId]||0);
@@ -633,7 +654,7 @@ function rowHTML(g, e){
           : `<small class="muted">${inIt ? 'your share' : 'not involved'}</small><b class="muted">${inIt ? esc(fmt(e.owed[g.meId]||0,e.currency)) : '—'}</b>`;
   }
   return `<button class="row" data-act="editExpense" data-id="${e.id}">${badge}<div class="ico">${catOf(e.category)[2]}</div>
-    <div class="main"><div class="t">${esc(e.desc)}</div><div class="s">${who} ${esc(fmt(e.amount, e.currency))}</div></div>
+    <div class="main"><div class="t">${esc(e.desc)}</div><div class="s">${paidBy} ${esc(fmt(e.amount, e.currency))}</div>${byLine(g,e)}</div>
     <div class="right">${right}</div></button>`;
 }
 function fxLine(minor, cur, g){
@@ -937,7 +958,8 @@ function openExpenseForm(g, exp){
         const owed = Object.fromEntries(Object.entries(res.owed).filter(([,v]) => v > 0));
         const rec = { id: exp?.id || uid(), type:'expense', desc, amount:t, currency:c, date:$('#fDate').value,
           category:$('#fCat').value, notes:$('#fNotes').value.trim(), payers, splitMode:f.mode, splitInput:si, owed,
-          createdAt: exp?.createdAt || Date.now(), updatedAt: Date.now() };
+          createdAt: exp?.createdAt || Date.now(), updatedAt: Date.now(),
+          createdBy: isEdit ? (exp.createdBy || null) : (g.meId || null), updatedBy: isEdit ? (g.meId || null) : null };
         if (isEdit) g.expenses[g.expenses.findIndex(x => x.id === exp.id)] = rec; else g.expenses.push(rec);
         cloudSaveEntry(g, rec);
         track(isEdit ? 'expense_edited' : 'expense_added', {currency: c, split_mode: f.mode, category: rec.category, multi_payer: f.payerMode === 'multi'});
@@ -992,7 +1014,8 @@ function openSettleForm(g, preset = {}, pay){
         if (f === t) return $('#sErr').textContent = 'Pick two different people';
         if (!(a > 0)) return $('#sErr').textContent = 'Enter an amount above zero';
         const rec = {id: pay?.id || uid(), type:'payment', from:f, to:t, amount:a, currency:c, date:$('#sDate').value || today(),
-          notes:$('#sNote').value.trim(), createdAt: pay?.createdAt || Date.now(), updatedAt: Date.now()};
+          notes:$('#sNote').value.trim(), createdAt: pay?.createdAt || Date.now(), updatedAt: Date.now(),
+          createdBy: isEdit ? (pay.createdBy || null) : (g.meId || null), updatedBy: isEdit ? (g.meId || null) : null};
         if (isEdit) g.expenses[g.expenses.findIndex(x => x.id === pay.id)] = rec; else g.expenses.push(rec);
         cloudSaveEntry(g, rec);
         track(isEdit ? 'payment_edited' : 'payment_recorded', {currency: c});
@@ -1067,7 +1090,7 @@ async function handleHash(){
 
 /* ---------- Demo data ---------- */
 function makeDemo(){
-  const M = ['You','Alex','Priya','Wei Ming'].map(n => ({id:uid(), name:n}));
+  const M = ['Jamie','Alex','Priya','Wei Ming'].map(n => ({id:uid(), name:n}));
   const [me,a,p,w] = M.map(x => x.id), all = M.map(x => x.id);
   const g = {id:uid(), name:'Bali trip 🌴', defaultCurrency:'IDR', home:'SGD', members:M, meId:me, expenses:[], createdAt:Date.now(), lastCurrency:'IDR'};
   const d = n => { const x = new Date(); x.setDate(x.getDate() - n); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0,10); };
@@ -1077,7 +1100,7 @@ function makeDemo(){
     const siMinor = mode === 'exact' ? Object.fromEntries(Object.entries(si).map(([k,v]) => [k, toMinor(v, cur)])) : si;
     const r = computeSplit(amount, mode, siMinor, all);
     g.expenses.push({id:uid(), type:'expense', desc, amount, currency:cur, date:d(days), category:cat, notes:'',
-      payers:{[payer]:amount}, splitMode:mode, splitInput:siMinor, owed:r.owed, createdAt:Date.now()-days*1e5});
+      payers:{[payer]:amount}, splitMode:mode, splitInput:siMinor, owed:r.owed, createdAt:Date.now()-days*1e5, createdBy:payer});
   };
   add('Flights SIN → DPS', 'SGD', 1240, me, 'travel', 9);
   add('Grab from airport', 'IDR', 285000, a, 'transport', 8);
@@ -1085,7 +1108,7 @@ function makeDemo(){
   add('Seafood dinner, Jimbaran', 'IDR', 1650000, w, 'food', 7);
   add('Surf lesson', 'IDR', 900000, me, 'entertainment', 6, 'equal', {[me]:true,[a]:true,[p]:false,[w]:true});
   add('Duty free snacks (KL transit)', 'MYR', 86.40, a, 'food', 3, 'exact', {[me]:20,[a]:30.4,[p]:16,[w]:20});
-  g.expenses.push({id:uid(), type:'payment', from:w, to:me, amount:toMinor(150,'SGD'), currency:'SGD', date:d(2), notes:'PayNow', createdAt:Date.now()});
+  g.expenses.push({id:uid(), type:'payment', from:w, to:me, amount:toMinor(150,'SGD'), currency:'SGD', date:d(2), notes:'PayNow', createdAt:Date.now(), createdBy:w});
   return g;
 }
 
@@ -1094,7 +1117,7 @@ const actions = {
   tab: d => { ui.tab = d.tab; track('tab_viewed', {tab: d.tab}); render(); },
   newGroup: () => openGroupForm(),
   demo: () => { track('demo_opened'); const g = makeDemo(); state.groups.push(g); state.activeGroupId = g.id; save(); render(); toast('Demo group added'); },
-  addExpense: () => openExpenseForm(curGroup()),
+  addExpense: () => { const g = curGroup(); if (!g.meId && g.members.length) { askWhoAmI(g, () => openExpenseForm(g)); return; } openExpenseForm(g); },
   editExpense: d => { const g = curGroup(); openExpenseForm(g, g.expenses.find(e => e.id === d.id)); },
   editPayment: d => { const g = curGroup(); openSettleForm(g, {}, g.expenses.find(e => e.id === d.id)); },
   settle: d => openSettleForm(curGroup(), d.from ? {from:d.from, to:d.to, amount:d.amount, cur:d.cur} : {}),
